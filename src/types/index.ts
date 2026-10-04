@@ -8,5 +8,7 @@ export interface Profile {
   student_no: string | null
   role: UserRole
   active: boolean
+  /** true = الطالب مُجبَر على تغيير كلمة المرور المؤقتة قبل دخول المقرر. */
+  must_change_password: boolean
   created_at: string
 }

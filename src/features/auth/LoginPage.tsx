@@ -11,6 +11,7 @@ export default function LoginPage() {
   const { signIn, notice } = useAuth()
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -48,7 +49,7 @@ export default function LoginPage() {
 
         <div>
           <label htmlFor="identifier" className="mb-2 block text-sm font-semibold text-ink">
-            اسم المستخدم / البريد الإلكتروني
+            الرقم التعريفي / البريد الإلكتروني
           </label>
           <input
             id="identifier"
@@ -56,27 +57,41 @@ export default function LoginPage() {
             className={inputClass}
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
+            placeholder="الطالب: FM0001"
             autoComplete="username"
-            inputMode="email"
+            inputMode="text"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
           />
+          <p className="mt-1.5 text-xs text-ink/60">
+            الطالب يكتب الرقم التعريفي الذي سلّمه له الأستاذ، والأستاذ يكتب بريده الإلكتروني.
+          </p>
         </div>
 
         <div>
           <label htmlFor="password" className="mb-2 block text-sm font-semibold text-ink">
             كلمة المرور
           </label>
-          <input
-            id="password"
-            dir="ltr"
-            type="password"
-            className={inputClass}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
+          <div className="relative">
+            <input
+              id="password"
+              dir="ltr"
+              type={showPassword ? 'text' : 'password'}
+              className={`${inputClass} pr-16`}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-primary"
+              aria-pressed={showPassword}
+            >
+              {showPassword ? 'إخفاء' : 'إظهار'}
+            </button>
+          </div>
         </div>
 
         {message && (

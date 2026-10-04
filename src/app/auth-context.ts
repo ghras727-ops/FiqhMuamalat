@@ -11,6 +11,11 @@ export interface AuthState {
   notice: string | null
   /** يعيد رسالة خطأ عربية، أو null عند النجاح. */
   signIn: (identifier: string, password: string) => Promise<string | null>
+  /**
+   * تغيير كلمة المرور عبر Edge Function. تعيد رسالة خطأ عربية، أو null عند النجاح.
+   * بعد النجاح يُعاد تحميل الملف فيصبح must_change_password = false.
+   */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<string | null>
   signOut: () => Promise<void>
 }
 
@@ -20,6 +25,7 @@ export const AuthContext = createContext<AuthState>({
   loading: true,
   notice: null,
   signIn: async () => null,
+  changePassword: async () => null,
   signOut: async () => {},
 })
 

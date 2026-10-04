@@ -5,6 +5,7 @@ import type { UserRole } from '../types'
 import AccessDenied from '../components/AccessDenied'
 import CenteredCard from '../components/CenteredCard'
 import LoginPage from '../features/auth/LoginPage'
+import ChangePasswordPage from '../features/auth/ChangePasswordPage'
 import AdminPage from '../features/admin/AdminPage'
 import StudentHomePage from '../features/student/StudentHomePage'
 
@@ -29,6 +30,11 @@ export default function App() {
 
   // جلسة بلا ملف: إما قيد التحميل أو في طريقها للرفض وتسجيل الخروج.
   if (loading || (session && !profile)) return <Splash />
+
+  // طالب بكلمة مرور مؤقتة: لا يرى شيئًا غير شاشة التغيير، مهما كان المسار.
+  if (profile?.role === 'student' && profile.must_change_password) {
+    return <ChangePasswordPage />
+  }
 
   if (path === '/login') {
     return profile ? <Redirect to={homeFor(profile.role)} /> : <LoginPage />
