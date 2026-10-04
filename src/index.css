@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/*
+  الهوية البصرية — مستندة إلى ألوان شعار الجامعة.
+  الأصناف المتاحة مثل: bg-primary، text-secondary، border-light-blue ...
+  تنبيه التباين: لا يُستخدم accent كلون نص على الأبيض (تباينه 1.8:1)،
+  ولا warning كلون نص. يصلحان خلفيات وعناصر مساعدة فقط.
+*/
+@theme {
+  --color-primary: #0b6cb3; /* الأساسي: الواجهة والأزرار والعناوين المهمة */
+  --color-secondary: #198b48; /* ثانوي: عناصر مساندة */
+  --color-accent: #49cef3; /* عناصر مساعدة */
+  --color-light-blue: #95d4ed; /* حدود وخلفيات خفيفة */
+  --color-ink: #123a2e; /* النص */
+  --color-surface: #f7fbfd; /* خلفية الصفحة */
+  --color-white: #ffffff;
+  --color-success: #198b48;
+  --color-error: #d74050;
+  --color-warning: #dce271;
+
+  /* خطوط النظام العربية: لا اعتماد على خدمة خارجية */
+  --font-sans: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic",
+    system-ui, -apple-system, sans-serif;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* تركيز واضح للوحة المفاتيح */
+:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
