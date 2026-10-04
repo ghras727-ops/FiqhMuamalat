@@ -1,26 +1,26 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 /*
-  الهوية البصرية — مستندة إلى ألوان شعار الجامعة.
-  الأصناف المتاحة مثل: bg-primary، text-secondary، border-light-blue ...
-  تنبيه التباين: لا يُستخدم accent كلون نص على الأبيض (تباينه 1.8:1)،
-  ولا warning كلون نص. يصلحان خلفيات وعناصر مساعدة فقط.
+  Brand identity based on the university logo colors.
+  Available classes: bg-primary, text-secondary, border-light-blue ...
+  Contrast note: do not use accent or warning as text color on white
+  (accent contrast is 1.8:1). They are for backgrounds and helpers only.
 */
 @theme {
-  --color-primary: #0b6cb3; /* الأساسي: الواجهة والأزرار والعناوين المهمة */
-  --color-secondary: #198b48; /* ثانوي: عناصر مساندة */
-  --color-accent: #49cef3; /* عناصر مساعدة */
-  --color-light-blue: #95d4ed; /* حدود وخلفيات خفيفة */
-  --color-ink: #123a2e; /* النص */
-  --color-surface: #f7fbfd; /* خلفية الصفحة */
+  --color-primary: #0b6cb3; /* main: interface, buttons, key headings */
+  --color-secondary: #198b48; /* secondary: supporting elements */
+  --color-accent: #49cef3; /* helper elements */
+  --color-light-blue: #95d4ed; /* light borders and backgrounds */
+  --color-ink: #123a2e; /* text */
+  --color-surface: #f7fbfd; /* page background */
   --color-white: #ffffff;
   --color-success: #198b48;
   --color-error: #d74050;
   --color-warning: #dce271;
 
-  /* خطوط النظام العربية: لا اعتماد على خدمة خارجية */
-  --font-sans: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic",
-    system-ui, -apple-system, sans-serif;
+  /* Arabic system fonts: bundled locally, no external service */
+  --font-sans: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, "Noto Naskh Arabic",
+    "Noto Sans Arabic", system-ui, -apple-system, sans-serif;
 }
 
 html,
@@ -37,7 +37,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* تركيز واضح للوحة المفاتيح */
+/* Clear focus ring for keyboard users */
 :focus-visible {
   outline: 3px solid var(--color-accent);
   outline-offset: 2px;
