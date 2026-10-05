@@ -1,17 +1,48 @@
-import { useAuth } from '../../app/auth-context'
-import Button from '../../components/Button'
-import CenteredCard from '../../components/CenteredCard'
+﻿import { useState } from 'react'
+import AppShell, { type ShellTab } from '../../components/AppShell'
+import ActivitiesTab from './ActivitiesTab'
+import GradesTab from './GradesTab'
+import HomeTab from './HomeTab'
+import MaterialsTab from './MaterialsTab'
+import PostsTab from './PostsTab'
+import QuizSetsTab from './QuizSetsTab'
+import ReportsTab from './ReportsTab'
+import StudentsTab from './StudentsTab'
+import TablesTab from './TablesTab'
+import WeekPackTab from './WeekPackTab'
+import WeeksTab from './WeeksTab'
 
-// صفحة إدارة أولية فقط. لوحة الإدارة الحقيقية في مرحلة لاحقة.
+const TABS: ShellTab[] = [
+  { key: 'home', label: 'الرئيسية' },
+  { key: 'posts', label: 'المنشورات' },
+  { key: 'students', label: 'الطلاب' },
+  { key: 'weeks', label: 'الأسابيع والدروس' },
+  { key: 'pack', label: 'محتوى الأسبوع' },
+  { key: 'materials', label: 'المواد' },
+  { key: 'bank', label: 'بنك الأسئلة' },
+  { key: 'acts', label: 'الأنشطة' },
+  { key: 'grades', label: 'الدرجات' },
+  { key: 'reports', label: 'التقارير' },
+  { key: 'db', label: 'الجداول' },
+]
+
 export default function AdminPage() {
-  const { signOut } = useAuth()
+  const [tab, setTab] = useState('home')
+
   return (
-    <CenteredCard>
-      <h1 className="text-3xl font-bold leading-tight text-primary">لوحة إدارة فقه المعاملات</h1>
-      <p className="mt-4 text-lg text-ink">مرحبًا بك</p>
-      <div className="mt-8">
-        <Button variant="outline" onClick={signOut}>تسجيل الخروج</Button>
-      </div>
-    </CenteredCard>
+    <AppShell tabs={TABS} current={tab} onChange={setTab}>
+      {tab === 'home' && <HomeTab />}
+      {tab === 'posts' && <PostsTab />}
+      {tab === 'students' && <StudentsTab />}
+      {tab === 'weeks' && <WeeksTab />}
+      {tab === 'pack' && <WeekPackTab />}
+      {tab === 'materials' && <MaterialsTab />}
+      {tab === 'bank' && <QuizSetsTab />}
+      {tab === 'acts' && <ActivitiesTab />}
+      {tab === 'grades' && <GradesTab />}
+      {tab === 'reports' && <ReportsTab />}
+      {tab === 'db' && <TablesTab />}
+    </AppShell>
   )
 }
+
