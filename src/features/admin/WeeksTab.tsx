@@ -1,5 +1,6 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import MaterialsTab from './MaterialsTab'
 
 interface Week {
   id: string
@@ -28,32 +29,33 @@ const input = 'mt-1 w-full rounded-xl border border-light-blue p-2 text-ink'
 export default function WeeksTab() {
   const [weeks, setWeeks] = useState<Week[]>([])
   const [lessons, setLessons] = useState<Lesson[]>([])
+  const [counts, setCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const [showWeek, setShowWeek] = useState(false)
-  const [wNumber, setWNumber] = useState('')
-  const [wTitle, setWTitle] = useState('')
-  const [wSummary, setWSummary] = useState('')
-
-  const [lessonFor, setLessonFor] = useState<string | null>(null)
-  const [lTitle, setLTitle] = useState('')
-  const [lBody, setLBody] = useState('')
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!supabase) return
     setLoading(true)
-    const w = await supabase.from('weeks').select('id, number, title, summary, published').order('number')
-    const l = await supabase
-      .from('lessons')
-      .select('id, week_id, title, body, position, published')
-      .order('position')
-    if (w.error || l.error) setError('تعذّر تحميل الأسابيع والدروس.')
-    else {
+    const [w, l, m] = await Promise.all([
+      supabase.from('weeks').select('id,number,title,summary,published').order('number'),
+      supabase
+        .from('lessons')
+        .select('id,week_id,title,body,position,published')
+        .order('position'),
+      supabase.from('materials').select('id,week_id'),
+    ])
+    if (w.error || l.error || m.error) {
+      setError('تعذّر تحميل البيانات.')
+    } else {
       setError(null)
       setWeeks((w.data ?? []) as Week[])
       setLessons((l.data ?? []) as Lesson[])
+      const c: Record<string, number> = {}
+      for (const row of (m.data ?? []) as { week_id: string }[]) {
+        c[row.week_id] = (c[row.week_id] ?? 0) + 1
+      }
+      setCounts(c)
     }
     setLoading(false)
   }, [])
@@ -62,99 +64,25 @@ export default function WeeksTab() {
     void load()
   }, [load])
 
-  async function addWeek() {
+  async function createWeek1() {
     if (!supabase) return
-    const n = parseInt(wNumber, 10)
-    if (!n || n < 1 || !wTitle.trim()) {
-      setError('اكتب رقم الأسبوع وعنوانه.')
-      return
-    }
-    setBusy(true)
     const { error: err } = await supabase.from('weeks').insert({
-      number: n,
-      title: wTitle.trim(),
-      summary: wSummary.trim() || null,
+      number: 1,
+      title: 'الأسبوع الأول',
+      summary: null,
+      published: false,
     })
-    setBusy(false)
-    if (err) {
-      setError('تعذّرت إضافة الأسبوع. ربما رقمه مستخدم من قبل.')
-      return
-    }
-    setError(null)
-    setWNumber('')
-    setWTitle('')
-    setWSummary('')
-    setShowWeek(false)
-    void load()
-  }
-
-  async function addLesson(weekId: string) {
-    if (!supabase) return
-    if (!lTitle.trim()) {
-      setError('اكتب عنوان الدرس.')
-      return
-    }
-    const inWeek = lessons.filter((x) => x.week_id === weekId)
-    const next = inWeek.length === 0 ? 1 : Math.max(...inWeek.map((x) => x.position)) + 1
-    setBusy(true)
-    const { error: err } = await supabase.from('lessons').insert({
-      week_id: weekId,
-      title: lTitle.trim(),
-      body: lBody.trim() || null,
-      position: next,
-    })
-    setBusy(false)
-    if (err) {
-      setError('تعذّرت إضافة الدرس.')
-      return
-    }
-    setError(null)
-    setLTitle('')
-    setLBody('')
-    setLessonFor(null)
-    void load()
-  }
-
-  async function togglePublish(table: 'weeks' | 'lessons', id: string, value: boolean) {
-    if (!supabase) return
-    const { error: err } = await supabase.from(table).update({ published: !value }).eq('id', id)
-    if (err) setError('تعذّر تغيير حالة النشر.')
+    if (err) setError('تعذّر إنشاء الأسبوع الأول: ' + err.message)
     else void load()
   }
-
-  const badge = (p: boolean) =>
-    'text-sm font-semibold ' + (p ? 'text-secondary' : 'text-ink/60')
 
   return (
     <div className="space-y-4">
       <section className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-bold text-primary">الأسابيع والدروس</h2>
-          <button className={btn} onClick={() => setShowWeek((v) => !v)}>
-            + إضافة أسبوع
-          </button>
-        </div>
-
-        {showWeek && (
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="text-sm font-semibold" htmlFor="wn">رقم الأسبوع</label>
-              <input id="wn" type="number" min={1} className={input} value={wNumber} onChange={(e) => setWNumber(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm font-semibold" htmlFor="wt">عنوان الأسبوع</label>
-              <input id="wt" type="text" className={input} value={wTitle} onChange={(e) => setWTitle(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm font-semibold" htmlFor="ws">ملخص (اختياري)</label>
-              <input id="ws" type="text" className={input} value={wSummary} onChange={(e) => setWSummary(e.target.value)} />
-            </div>
-            <button className={btn} onClick={addWeek} disabled={busy}>
-              {busy ? 'جارٍ الحفظ...' : 'حفظ الأسبوع'}
-            </button>
-          </div>
-        )}
-
+        <h2 className="text-xl font-bold text-primary">الأسابيع والدروس</h2>
+        <p className="mt-1 text-sm text-ink/70">
+          لكل أسبوع درس واحد ومواد متعددة. الأسبوع غير المنشور لا يراه الطالب.
+        </p>
         {error && <p className="mt-3 text-sm font-semibold text-error">{error}</p>}
       </section>
 
@@ -164,65 +92,235 @@ export default function WeeksTab() {
         </section>
       ) : weeks.length === 0 ? (
         <section className={card}>
-          <p className="text-ink/70">لا توجد أسابيع بعد. ابدأ بإضافة الأسبوع الأول.</p>
+          <p className="text-ink/70">لا توجد أسابيع بعد.</p>
+          <button className={btn + ' mt-3'} onClick={createWeek1}>
+            إنشاء الأسبوع الأول
+          </button>
         </section>
       ) : (
-        weeks.map((w) => {
-          const list = lessons.filter((x) => x.week_id === w.id)
-          return (
-            <section key={w.id} className={card}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-bold text-primary">
-                    الأسبوع {w.number}: {w.title}
-                  </h3>
-                  {w.summary && <p className="mt-1 text-sm text-ink/70">{w.summary}</p>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={badge(w.published)}>{w.published ? 'منشور' : 'مخفي'}</span>
-                  <button className={btnOutline} onClick={() => togglePublish('weeks', w.id, w.published)}>
-                    {w.published ? 'إخفاء' : 'نشر'}
-                  </button>
-                  <button className={btn} onClick={() => setLessonFor(lessonFor === w.id ? null : w.id)}>
-                    + إضافة درس
-                  </button>
-                </div>
-              </div>
-
-              {lessonFor === w.id && (
-                <div className="mt-4 space-y-3 rounded-xl border border-light-blue p-4">
-                  <div>
-                    <label className="text-sm font-semibold" htmlFor={'lt' + w.id}>عنوان الدرس</label>
-                    <input id={'lt' + w.id} type="text" className={input} value={lTitle} onChange={(e) => setLTitle(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold" htmlFor={'lb' + w.id}>محتوى الدرس</label>
-                    <textarea id={'lb' + w.id} rows={6} className={input} value={lBody} onChange={(e) => setLBody(e.target.value)} />
-                  </div>
-                  <button className={btn} onClick={() => addLesson(w.id)} disabled={busy}>
-                    {busy ? 'جارٍ الحفظ...' : 'حفظ الدرس'}
-                  </button>
-                </div>
-              )}
-
-              <ul className="mt-4 space-y-2">
-                {list.length === 0 && <li className="text-sm text-ink/60">لا دروس في هذا الأسبوع بعد.</li>}
-                {list.map((x) => (
-                  <li key={x.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-light-blue/50 pb-2">
-                    <span className="text-ink">{x.position}. {x.title}</span>
-                    <span className="flex items-center gap-2">
-                      <span className={badge(x.published)}>{x.published ? 'منشور' : 'مخفي'}</span>
-                      <button className={btnOutline} onClick={() => togglePublish('lessons', x.id, x.published)}>
-                        {x.published ? 'إخفاء' : 'نشر'}
-                      </button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )
-        })
+        weeks.map((w) => (
+          <WeekBlock
+            key={w.id}
+            week={w}
+            lesson={lessons.find((l) => l.week_id === w.id) ?? null}
+            materialCount={counts[w.id] ?? 0}
+            isOpen={openId === w.id}
+            onToggle={() => setOpenId(openId === w.id ? null : w.id)}
+            onChanged={load}
+          />
+        ))
       )}
+    </div>
+  )
+}
+
+function WeekBlock(props: {
+  week: Week
+  lesson: Lesson | null
+  materialCount: number
+  isOpen: boolean
+  onToggle: () => void
+  onChanged: () => void
+}) {
+  const { week, lesson, materialCount, isOpen, onToggle, onChanged } = props
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const [title, setTitle] = useState(week.title)
+  const [summary, setSummary] = useState(week.summary ?? '')
+
+  useEffect(() => setTitle(week.title), [week.title])
+  useEffect(() => setSummary(week.summary ?? ''), [week.summary])
+
+  async function saveWeek() {
+    if (!supabase) return
+    if (!title.trim()) {
+      setErr('العنوان مطلوب.')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    const { error } = await supabase
+      .from('weeks')
+      .update({ title: title.trim(), summary: summary.trim() || null })
+      .eq('id', week.id)
+    setBusy(false)
+    if (error) setErr(error.message)
+    else onChanged()
+  }
+
+  async function toggleWeekPublish() {
+    if (!supabase) return
+    setBusy(true)
+    setErr(null)
+    const { error } = await supabase
+      .from('weeks')
+      .update({ published: !week.published })
+      .eq('id', week.id)
+    setBusy(false)
+    if (error) setErr(error.message)
+    else onChanged()
+  }
+
+  async function createLesson() {
+    if (!supabase) return
+    setBusy(true)
+    setErr(null)
+    const { error } = await supabase.from('lessons').insert({
+      week_id: week.id,
+      title: week.title,
+      body: null,
+      position: 1,
+      published: false,
+    })
+    setBusy(false)
+    if (error) setErr(error.message)
+    else onChanged()
+  }
+
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold text-primary">
+            الأسبوع {week.number}: {week.title}
+          </h3>
+          <p className="mt-1 text-xs text-ink/60">
+            {week.published ? 'منشور' : 'مخفي'} — {materialCount} مادة —{' '}
+            {lesson ? 'درس موجود' : 'لا درس بعد'}
+          </p>
+        </div>
+        <button className={btnOutline} onClick={onToggle}>
+          {isOpen ? 'إغلاق' : 'فتح/تحرير'}
+        </button>
+      </div>
+
+      {isOpen && (
+        <div className="mt-4 space-y-5">
+          {err && <p className="text-sm font-semibold text-error">{err}</p>}
+
+          <div className="rounded-xl border border-light-blue p-4 space-y-3">
+            <h4 className="font-semibold text-primary">معلومات الأسبوع</h4>
+            <div>
+              <label className="text-sm font-semibold">العنوان</label>
+              <input
+                className={input}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-semibold">الملخص</label>
+              <textarea
+                className={input}
+                rows={2}
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className={btn} onClick={saveWeek} disabled={busy}>
+                حفظ
+              </button>
+              <button className={btnOutline} onClick={toggleWeekPublish} disabled={busy}>
+                {week.published ? 'إخفاء الأسبوع' : 'نشر الأسبوع'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-light-blue p-4 space-y-3">
+            <h4 className="font-semibold text-primary">الدرس</h4>
+            {lesson ? (
+              <LessonEditor lesson={lesson} onChanged={onChanged} />
+            ) : (
+              <>
+                <p className="text-sm text-ink/70">لا يوجد درس بعد.</p>
+                <button className={btn} onClick={createLesson} disabled={busy}>
+                  إنشاء الدرس
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-light-blue p-4">
+            <h4 className="font-semibold text-primary mb-3">مواد الأسبوع</h4>
+            <MaterialsTab weekId={week.id} />
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function LessonEditor({
+  lesson,
+  onChanged,
+}: {
+  lesson: Lesson
+  onChanged: () => void
+}) {
+  const [title, setTitle] = useState(lesson.title)
+  const [body, setBody] = useState(lesson.body ?? '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => setTitle(lesson.title), [lesson.title])
+  useEffect(() => setBody(lesson.body ?? ''), [lesson.body])
+
+  async function save() {
+    if (!supabase) return
+    if (!title.trim()) {
+      setErr('عنوان الدرس مطلوب.')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    const { error } = await supabase
+      .from('lessons')
+      .update({ title: title.trim(), body: body.trim() || null })
+      .eq('id', lesson.id)
+    setBusy(false)
+    if (error) setErr(error.message)
+    else onChanged()
+  }
+
+  async function togglePublish() {
+    if (!supabase) return
+    setBusy(true)
+    setErr(null)
+    const { error } = await supabase
+      .from('lessons')
+      .update({ published: !lesson.published })
+      .eq('id', lesson.id)
+    setBusy(false)
+    if (error) setErr(error.message)
+    else onChanged()
+  }
+
+  return (
+    <div className="space-y-3">
+      {err && <p className="text-sm font-semibold text-error">{err}</p>}
+      <div>
+        <label className="text-sm font-semibold">عنوان الدرس</label>
+        <input className={input} value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div>
+        <label className="text-sm font-semibold">نص الدرس</label>
+        <textarea
+          className={input}
+          rows={8}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button className={btn} onClick={save} disabled={busy}>
+          حفظ
+        </button>
+        <button className={btnOutline} onClick={togglePublish} disabled={busy}>
+          {lesson.published ? 'إخفاء الدرس' : 'نشر الدرس'}
+        </button>
+      </div>
     </div>
   )
 }

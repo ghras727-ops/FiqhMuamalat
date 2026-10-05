@@ -1,12 +1,12 @@
-import type { ReactNode } from 'react'
+﻿import type { ReactNode } from 'react'
 
 type Tone = 'ok' | 'wait' | 'off' | 'info'
 
 const tones: Record<Tone, string> = {
-  ok: 'bg-secondary-soft text-secondary ring-1 ring-secondary/20',
-  wait: 'bg-warning-soft text-ink ring-1 ring-warning',
-  off: 'bg-error-soft text-error ring-1 ring-error/20',
-  info: 'bg-primary-soft text-primary ring-1 ring-primary/20',
+  ok: 'bg-secondary/10 text-secondary',
+  wait: 'bg-warning/40 text-ink',
+  off: 'bg-error/10 text-error',
+  info: 'bg-primary/10 text-primary',
 }
 
 export default function Tag({ children, tone }: { children: ReactNode; tone: Tone }) {

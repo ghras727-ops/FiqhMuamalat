@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
-const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover active:bg-primary-active focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60'
-const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary-soft active:bg-accent-soft/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60'
-const btnDanger = 'rounded-xl border border-error bg-white px-4 py-2 text-sm font-semibold text-error transition hover:bg-error-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-error/40 disabled:cursor-not-allowed disabled:opacity-60'
-const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-accent/40'
+const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white hover:bg-primary/90 disabled:opacity-60'
+const btnOutline = 'rounded-xl border-2 border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-surface disabled:opacity-60'
+const btnDanger = 'rounded-xl border-2 border-error bg-white px-4 py-2 text-sm font-semibold text-error hover:bg-error/5 disabled:opacity-60'
+const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink'
 const label = 'text-base font-semibold text-primary'
 
 type QType = 'mcq' | 'tf' | 'essay_smart' | 'essay_reasoning'
@@ -26,12 +26,12 @@ const TYPE_LABEL: Record<QType, string> = {
 
 const TYPE_ORDER: QType[] = ['mcq', 'tf', 'essay_smart', 'essay_reasoning']
 
-// بطاقات بيضاء هادئة، وشريط جانبي رفيع بلون من هوية الجامعة لكل نوع
+// خلفية زرقاء غنية + نص أبيض واضح
 const TYPE_STYLE: Record<QType, { headerBg: string; headerText: string; badgeBg: string }> = {
-  mcq:             { headerBg: 'border-s-primary',   headerText: 'text-ink-muted', badgeBg: 'bg-primary-soft text-primary border-primary/20' },
-  tf:              { headerBg: 'border-s-secondary', headerText: 'text-ink-muted', badgeBg: 'bg-secondary-soft text-secondary border-secondary/20' },
-  essay_smart:     { headerBg: 'border-s-accent',    headerText: 'text-ink-muted', badgeBg: 'bg-accent-soft/30 text-primary border-accent/50' },
-  essay_reasoning: { headerBg: 'border-s-ink',       headerText: 'text-ink-muted', badgeBg: 'bg-ink/5 text-ink border-ink/20' },
+  mcq:             { headerBg: 'from-sky-600 to-sky-700',         headerText: 'text-white', badgeBg: 'bg-sky-50 text-sky-900 border-sky-200' },
+  tf:              { headerBg: 'from-teal-600 to-teal-700',        headerText: 'text-white', badgeBg: 'bg-teal-50 text-teal-900 border-teal-200' },
+  essay_smart:     { headerBg: 'from-indigo-600 to-indigo-700',    headerText: 'text-white', badgeBg: 'bg-indigo-50 text-indigo-900 border-indigo-200' },
+  essay_reasoning: { headerBg: 'from-violet-700 to-violet-800',    headerText: 'text-white', badgeBg: 'bg-violet-50 text-violet-900 border-violet-200' },
 }
 
 interface DraftOption { label: string; text: string; isCorrect: boolean }
@@ -216,7 +216,7 @@ export default function QuizSetsTab() {
     setBusy(false); await loadActivities()
   }
 
-  if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
+  if (loading) return <section className={card}><p className="text-ink/70 text-lg">جارٍ التحميل...</p></section>
 
   const selAct = activities.find((a) => a.id === selectedId)
   const selWeek = selAct ? weeks.find((w) => w.id === selAct.week_id) : null
@@ -234,7 +234,7 @@ export default function QuizSetsTab() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+      <section className="rounded-2xl bg-gradient-to-l from-primary to-primary/85 p-6 text-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold">بنك الأسئلة</h2>
@@ -243,8 +243,8 @@ export default function QuizSetsTab() {
           {selAct && (
             <button
               className={(selAct.open
-                ? 'bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/30'
-                : 'bg-white text-primary hover:bg-primary-soft') + ' rounded-xl px-5 py-2.5 text-base font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'}
+                ? 'bg-white/15 hover:bg-white/25 text-white'
+                : 'bg-white text-primary hover:bg-white/90') + ' rounded-xl px-5 py-2.5 text-base font-semibold transition'}
               onClick={() => void toggleActivity()}
               disabled={busy}
             >
@@ -257,7 +257,7 @@ export default function QuizSetsTab() {
           <>
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <select
-                className="rounded-xl border border-white/30 bg-white/10 p-3 text-base font-semibold text-white backdrop-blur focus:outline-none focus:ring-2 focus:ring-accent"
+                className="rounded-xl border-2 border-white/30 bg-white/10 p-3 text-base font-semibold text-white backdrop-blur"
                 value={selectedId}
                 onChange={(e) => setSelectedId(e.target.value)}
               >
@@ -267,12 +267,12 @@ export default function QuizSetsTab() {
                 })}
               </select>
               {selAct && (
-                <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">
+                <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white">
                   {selWeek ? `الأسبوع ${selWeek.number} — ` : ''}{questions.length} سؤال — {totalScore} درجة
                 </span>
               )}
               <button
-                className="ms-auto rounded-xl bg-white px-5 py-2.5 text-base font-semibold text-primary shadow-sm transition hover:bg-primary-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+                className="ms-auto rounded-xl bg-white px-5 py-2.5 text-base font-semibold text-primary hover:bg-white/90"
                 onClick={startAdd}
                 disabled={busy}
               >
@@ -285,20 +285,14 @@ export default function QuizSetsTab() {
                 <span>تنوع الأسئلة</span>
                 <span>{answeredTypes} من {TYPE_ORDER.length} أنواع — {questions.length} سؤالًا</span>
               </div>
-              <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/20">
-                <div className="h-full rounded-full bg-gradient-to-l from-accent to-accent-soft transition-all" style={{ width: progressPercent + '%' }} />
+              <div className="mt-2 h-3 overflow-hidden rounded-full bg-white/20">
+                <div className="h-full rounded-full bg-white transition-all" style={{ width: progressPercent + '%' }} />
               </div>
             </div>
           </>
         )}
 
-        {error && <p className="mt-4 rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
-
-        <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
-          <span className="flex-[3] bg-accent" />
-          <span className="flex-1 bg-secondary" />
-          <span className="flex-1 bg-warning" />
-        </div>
+        {error && <p className="mt-4 rounded-xl bg-white/15 p-3 text-base font-semibold text-white">{error}</p>}
       </section>
 
       {mode === 'add' && (
@@ -316,16 +310,16 @@ export default function QuizSetsTab() {
             const isOpen = open[t]
             const style = TYPE_STYLE[t]
             return (
-              <section key={t} className={`overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-white shadow-sm transition hover:shadow-md ${style.headerBg}`}>
+              <section key={t} className="overflow-hidden rounded-2xl border border-light-blue bg-white shadow-sm">
                 <button
-                  className="flex w-full items-center justify-between gap-4 bg-white px-5 py-4 text-start transition hover:bg-primary-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  className={`flex w-full items-center justify-between gap-4 bg-gradient-to-l ${style.headerBg} px-5 py-4 text-start transition hover:brightness-110`}
                   onClick={() => setOpen({ ...open, [t]: !isOpen })}
                 >
                   <div className="flex items-center gap-4">
-                    <span className={`rounded-xl border px-4 py-1.5 text-lg font-bold ${style.badgeBg}`}>
+                    <span className={`rounded-xl bg-white/20 px-4 py-1.5 text-lg font-bold ${style.headerText} backdrop-blur`}>
                       {TYPE_LABEL[t]}
                     </span>
-                    <span className={`text-base font-semibold ${style.headerText}`}>
+                    <span className={`text-base font-semibold ${style.headerText} opacity-95`}>
                       {items.length} سؤال — {groupScore} درجة
                     </span>
                   </div>
@@ -335,9 +329,9 @@ export default function QuizSetsTab() {
                 </button>
 
                 {isOpen && (
-                  <ul className="space-y-3 border-t border-light-blue bg-bg p-4">
+                  <ul className="space-y-3 bg-surface/40 p-4">
                     {items.length === 0 && (
-                      <li className="rounded-xl bg-white p-4 text-center text-base text-ink-muted">لا أسئلة من هذا النوع.</li>
+                      <li className="rounded-xl bg-white p-4 text-center text-base text-ink/60">لا أسئلة من هذا النوع.</li>
                     )}
                     {items.map((link, i) => {
                       const q = questions.find((x) => x.id === link.question_id)
@@ -348,15 +342,15 @@ export default function QuizSetsTab() {
                         <li key={q.id} className="rounded-xl border border-light-blue bg-white p-4 shadow-sm">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+                              <div className="flex flex-wrap items-center gap-2 text-sm text-ink/70">
                                 <span className={`rounded-lg border px-2 py-0.5 font-semibold ${style.badgeBg}`}>
                                   {i + 1}
                                 </span>
-                                <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-semibold text-primary">
+                                <span className="rounded-lg bg-primary/10 px-2 py-0.5 font-semibold text-primary">
                                   {q.score} درجة
                                 </span>
                                 {k?.internal_note && (
-                                  <span className="rounded-lg bg-warning-soft px-2 py-0.5 font-semibold text-ink ring-1 ring-warning">
+                                  <span className="rounded-lg bg-amber-100 px-2 py-0.5 font-semibold text-amber-800">
                                     ⚠ يحتاج مراجعة
                                   </span>
                                 )}
@@ -374,8 +368,8 @@ export default function QuizSetsTab() {
                                         className={
                                           'flex items-center gap-3 rounded-lg border p-2 ' +
                                           (isCorrect
-                                            ? 'border-secondary/40 bg-secondary-soft font-semibold text-secondary'
-                                            : 'border-light-blue bg-white text-ink')
+                                            ? 'border-secondary/40 bg-secondary/10 font-semibold text-secondary'
+                                            : 'border-light-blue bg-white text-ink/80')
                                         }
                                       >
                                         <span className="w-8 text-center font-bold">{o.label}</span>
@@ -395,12 +389,12 @@ export default function QuizSetsTab() {
                                 </div>
                               )}
                               {q.type.startsWith('essay') && k?.model_answer && (
-                                <div className="mt-3 whitespace-pre-wrap rounded-lg border border-light-blue bg-primary-soft p-3 text-base text-ink">
-                                  <b className="text-primary">الإجابة النموذجية: </b>{k.model_answer}
+                                <div className="mt-3 whitespace-pre-wrap rounded-lg bg-indigo-50 p-3 text-base text-ink/80">
+                                  <b className="text-indigo-900">الإجابة النموذجية: </b>{k.model_answer}
                                 </div>
                               )}
                               {k?.internal_note && (
-                                <div className="mt-3 rounded-lg bg-warning-soft p-2 text-sm text-ink ring-1 ring-warning">
+                                <div className="mt-3 rounded-lg bg-amber-50 p-2 text-sm text-amber-900">
                                   <b>ملاحظة: </b>{k.internal_note}
                                 </div>
                               )}
@@ -471,8 +465,8 @@ function DraftEditor({
         <div className="mt-4 space-y-2">
           <div className={label}>الخيارات (اختر الصحيح)</div>
           {draft.options.map((o, i) => (
-            <div key={i} className="flex items-center gap-3 rounded-xl border border-light-blue bg-bg p-2">
-              <input type="radio" name="correct" checked={o.isCorrect} onChange={() => setCorrect(i)} className="h-5 w-5 accent-secondary" />
+            <div key={i} className="flex items-center gap-3 rounded-xl border border-light-blue bg-surface/40 p-2">
+              <input type="radio" name="correct" checked={o.isCorrect} onChange={() => setCorrect(i)} className="h-5 w-5" />
               <span className="w-8 text-center text-lg font-bold text-primary">{o.label}</span>
               <input className={input + ' mt-0 flex-1'} value={o.text} onChange={(e) => setOptionText(i, e.target.value)} />
             </div>
@@ -484,8 +478,8 @@ function DraftEditor({
         <div className="mt-4">
           <label className={label}>الإجابة الصحيحة</label>
           <div className="mt-2 flex gap-6 text-lg">
-            <label className="flex items-center gap-2"><input type="radio" name="tf" checked={draft.correctTf} onChange={() => setDraft({ ...draft, correctTf: true })} className="h-5 w-5 accent-secondary" /> صح</label>
-            <label className="flex items-center gap-2"><input type="radio" name="tf" checked={!draft.correctTf} onChange={() => setDraft({ ...draft, correctTf: false })} className="h-5 w-5 accent-secondary" /> خطأ</label>
+            <label className="flex items-center gap-2"><input type="radio" name="tf" checked={draft.correctTf} onChange={() => setDraft({ ...draft, correctTf: true })} className="h-5 w-5" /> صح</label>
+            <label className="flex items-center gap-2"><input type="radio" name="tf" checked={!draft.correctTf} onChange={() => setDraft({ ...draft, correctTf: false })} className="h-5 w-5" /> خطأ</label>
           </div>
         </div>
       )}

@@ -24,10 +24,10 @@ const TYPE_LABEL: Record<QType, string> = {
 }
 
 const TYPE_BADGE: Record<QType, string> = {
-  mcq: 'bg-primary-soft text-primary border-primary/20',
-  tf: 'bg-secondary-soft text-secondary border-secondary/20',
-  essay_smart: 'bg-accent-soft/30 text-primary border-accent/50',
-  essay_reasoning: 'bg-ink/5 text-ink border-ink/20',
+  mcq: 'bg-sky-100 text-sky-900 border-sky-300',
+  tf: 'bg-teal-100 text-teal-900 border-teal-300',
+  essay_smart: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+  essay_reasoning: 'bg-violet-100 text-violet-900 border-violet-300',
 }
 
 export default function SelfTestTab() {
@@ -112,7 +112,7 @@ export default function SelfTestTab() {
     const essayCount = questions.filter((q) => q.type.startsWith('essay')).length
     return (
       <section className={card}>
-        <div className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white">
+        <div className="rounded-2xl bg-gradient-to-l from-primary to-primary/85 p-6 text-white">
           <h2 className="text-3xl font-bold">تم التسليم بنجاح</h2>
           <p className="mt-1 text-base text-white/85">تم استلام إجاباتك.</p>
         </div>
@@ -138,7 +138,7 @@ export default function SelfTestTab() {
     const sorted = [...aq].sort((a, b) => a.position - b.position)
     return (
       <section className={card}>
-        <div className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white">
+        <div className="rounded-2xl bg-gradient-to-l from-primary to-primary/85 p-6 text-white">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-2xl font-bold">{running.title}</h2>
@@ -230,7 +230,7 @@ export default function SelfTestTab() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
+      <section className="rounded-2xl bg-gradient-to-l from-primary to-primary/85 p-6 text-white shadow-md">
         <h2 className="text-3xl font-bold">اختبر نفسك</h2>
         <p className="mt-1 text-base text-white/85">اختبر فهمك لدروس الأسابيع المنشورة.</p>
       </section>

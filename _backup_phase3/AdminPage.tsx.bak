@@ -16,6 +16,7 @@ const TABS: ShellTab[] = [
   { key: 'posts', label: 'المنشورات' },
   { key: 'students', label: 'الطلاب' },
   { key: 'weeks', label: 'الأسابيع والدروس' },
+  { key: 'pack', label: 'محتوى الأسبوع' },
   { key: 'materials', label: 'المواد' },
   { key: 'bank', label: 'بنك الأسئلة' },
   { key: 'acts', label: 'الأنشطة' },
@@ -33,6 +34,7 @@ export default function AdminPage() {
       {tab === 'posts' && <PostsTab />}
       {tab === 'students' && <StudentsTab />}
       {tab === 'weeks' && <WeeksTab />}
+      {tab === 'pack' && <WeekPackTab />}
       {tab === 'materials' && <MaterialsTab />}
       {tab === 'bank' && <QuizSetsTab />}
       {tab === 'acts' && <ActivitiesTab />}
