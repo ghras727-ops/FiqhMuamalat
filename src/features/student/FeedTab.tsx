@@ -1,186 +1,750 @@
-﻿import { useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../app/auth-context'
-import DemoBadge from '../../components/DemoBadge'
-import Tag from '../../components/Tag'
-import AttachmentView from '../../components/AttachmentView'
-import { btn, btnOutline, card, field, th } from '../../components/ui'
-import { demoActivities, demoMaterials, demoProgress, demoResults, demoStudents } from '../../demo/data'
-import { addComment, toggleLike, useFeed } from '../../demo/store'
+import { supabase } from '../../lib/supabase'
 
-const ME = 'FM0001'
+const BUCKET = 'platform-files'
+const CURRICULUM_BUCKET = 'course-files'
+const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
+const btn = 'rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
+const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
+const btnDanger = 'rounded-xl border border-error bg-white px-3 py-1.5 text-sm font-semibold text-error hover:bg-error-soft disabled:opacity-60'
+const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink'
+const label = 'text-sm font-semibold text-primary'
 
-const acts = demoActivities.filter((a) => a.status !== 'draft')
-const students = demoStudents.filter((s) => s.active)
+type PostKind = 'announcement' | 'post' | 'image' | 'file' | 'video' | 'link'
+type MaterialKind = 'document' | 'slides' | 'link'
 
-const ranking = students
-  .map((s) => {
-    let sum = 0
-    let maxSum = 0
-    acts.forEach((a) => {
-      const r = demoResults.find((x) => x.studentNo === s.no && x.activityId === a.id)
-      if (r) {
-        sum += r.score
-        maxSum += a.max
-      }
-    })
-    return {
-      no: s.no,
-      name: s.name,
-      percent: maxSum === 0 ? 0 : Math.round((sum / maxSum) * 100),
-      progress: demoProgress[s.no] ?? 0,
+interface PostRow {
+  id: string
+  author_id: string
+  kind: PostKind
+  title: string | null
+  body: string | null
+  attachment_path: string | null
+  external_url: string | null
+  pinned: boolean
+  hidden: boolean
+  allow_comments: boolean
+  show_names: boolean
+  linked_type: string | null
+  linked_id: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+interface CommentRow {
+  id: string
+  post_id: string
+  author_id: string
+  text: string
+  hidden: boolean
+  created_at: string
+}
+
+interface ProfileLite { id: string; full_name: string; role: 'teacher' | 'student' }
+
+interface MaterialRow {
+  id: string
+  week_id: string
+  lesson_id: string | null
+  title: string
+  kind: MaterialKind
+  view_path: string | null
+  download_path: string | null
+  url: string | null
+}
+
+interface MaterialWithCtx extends MaterialRow {
+  week_number: number
+  lesson_title: string | null
+}
+
+interface RankRow { student_id: string; full_name: string; student_no: string | null; earned: number; possible: number; percent: number }
+interface BestRow { activity_title: string; student_name: string; percent: number }
+
+interface StatsRow {
+  students: number; lessons: number; materials: number
+  weeks: number; questions: number; attempts: number
+}
+
+const KIND_LABEL: Record<PostKind, string> = {
+  announcement: 'إعلان', post: 'منشور', image: 'صورة',
+  file: 'ملف', video: 'فيديو', link: 'رابط',
+}
+const KIND_EMOJI: Record<PostKind, string> = {
+  announcement: '📢', post: '📝', image: '🖼️',
+  file: '📎', video: '🎥', link: '🔗',
+}
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.')
+  return i > 0 ? name.slice(i + 1).toLowerCase() : 'bin'
+}
+
+function timeAgo(iso: string): string {
+  const d = new Date(iso).getTime()
+  const diff = (Date.now() - d) / 1000
+  if (diff < 60) return 'الآن'
+  if (diff < 3600) return `قبل ${Math.floor(diff / 60)} دقيقة`
+  if (diff < 86400) return `قبل ${Math.floor(diff / 3600)} ساعة`
+  if (diff < 604800) return `قبل ${Math.floor(diff / 86400)} يوم`
+  return new Date(iso).toLocaleDateString('ar-SA')
+}
+
+function renderWithLinks(text: string): React.ReactNode[] {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g)
+  return parts.map((part, i) => {
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a key={i} href={part} target="_blank" rel="noreferrer" className="break-all font-semibold text-primary underline hover:text-primary-hover">
+          {part}
+        </a>
+      )
     }
+    return <span key={i}>{part}</span>
   })
-  .sort((a, b) => b.percent - a.percent)
-
-let bestSingle = { name: '', percent: 0 }
-demoResults.forEach((r) => {
-  const a = demoActivities.find((x) => x.id === r.activityId)
-  const s = demoStudents.find((x) => x.no === r.studentNo)
-  if (a && s) {
-    const p = Math.round((r.score / a.max) * 100)
-    if (p > bestSingle.percent) bestSingle = { name: s.name, percent: p }
-  }
-})
-
-const avgProgress = Math.round(ranking.reduce((t, r) => t + r.progress, 0) / ranking.length)
-const myRank = ranking.findIndex((r) => r.no === ME) + 1
-const myProgress = demoProgress[ME] ?? 0
-
-const kindTone = { 'إعلان': 'wait', 'درس': 'info', 'ملف': 'ok', 'نقاش': 'info' } as const
+}
 
 export default function FeedTab() {
   const { profile } = useAuth()
-  const feed = useFeed()
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const isTeacher = profile?.role === 'teacher'
+  const me = profile?.id ?? ''
 
-  const posts = feed.posts
-    .filter((p) => !p.hidden)
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned))
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [posts, setPosts] = useState<PostRow[]>([])
+  const [comments, setComments] = useState<CommentRow[]>([])
+  const [likesByPost, setLikesByPost] = useState<Record<string, string[]>>({})
+  const [profilesMap, setProfilesMap] = useState<Record<string, ProfileLite>>({})
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
+  const [materials, setMaterials] = useState<MaterialWithCtx[]>([])
 
-  function send(postId: string) {
-    const text = (drafts[postId] ?? '').trim()
-    if (!text) return
-    addComment(postId, profile?.full_name ?? 'طالب', text)
-    setDrafts({ ...drafts, [postId]: '' })
+  const [ranking, setRanking] = useState<RankRow[]>([])
+  const [best, setBest] = useState<BestRow | null>(null)
+  const [stats, setStats] = useState<StatsRow>({
+    students: 0, lessons: 0, materials: 0, weeks: 0, questions: 0, attempts: 0,
+  })
+
+  const [showAdd, setShowAdd] = useState(false)
+
+  const loadAll = useCallback(async () => {
+    if (!supabase) return
+    setLoading(true); setError(null)
+
+    const [pRes, cRes, lRes, rRes, bRes, stRes, lsRes, msRes, wkRes, qRes, atRes] = await Promise.all([
+      supabase.from('posts').select('id,author_id,kind,title,body,attachment_path,external_url,pinned,hidden,allow_comments,show_names,linked_type,linked_id,created_at,updated_at').order('pinned', { ascending: false }).order('created_at', { ascending: false }),
+      supabase.from('post_comments').select('id,post_id,author_id,text,hidden,created_at').order('created_at'),
+      supabase.from('post_likes').select('post_id,student_id'),
+      supabase.rpc('class_ranking'),
+      supabase.rpc('best_activity_score'),
+      supabase.from('profiles_public').select('id,full_name,role'),
+      supabase.from('lessons').select('id'),
+      supabase.from('materials').select('id,week_id,lesson_id,title,kind,view_path,download_path,url'),
+      supabase.from('weeks').select('id,number'),
+      supabase.from('questions').select('id'),
+      supabase.from('attempts').select('id'),
+    ])
+
+    if (pRes.error || cRes.error || lRes.error) {
+      setError('تعذّر تحميل بيانات المنصة.')
+      setLoading(false); return
+    }
+
+    const postsList = (pRes.data ?? []) as PostRow[]
+    const commentsList = (cRes.data ?? []) as CommentRow[]
+    const likesList = (lRes.data ?? []) as { post_id: string; student_id: string }[]
+
+    // خريطة الأسماء
+    const profMap: Record<string, ProfileLite> = {}
+    for (const p of (stRes.data ?? []) as ProfileLite[]) profMap[p.id] = p
+
+    // signed urls لمرفقات المنشورات
+    const signed: Record<string, string> = {}
+    for (const p of postsList) {
+      if (p.attachment_path) {
+        const { data } = await supabase.storage.from(BUCKET).createSignedUrl(p.attachment_path, 86400)
+        if (data?.signedUrl) signed[p.id] = data.signedUrl
+      }
+    }
+
+    // المواد (لخيار الربط)
+    const rawMaterials = (msRes.data ?? []) as MaterialRow[]
+    const weekMap: Record<string, number> = {}
+    for (const w of (wkRes.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
+    const lessonMap: Record<string, string> = {}
+    if (rawMaterials.length > 0) {
+      const lessonIds = Array.from(new Set(rawMaterials.map((m) => m.lesson_id).filter(Boolean) as string[]))
+      if (lessonIds.length > 0) {
+        const lRes2 = await supabase.from('lessons').select('id,title').in('id', lessonIds)
+        for (const l of (lRes2.data ?? []) as { id: string; title: string }[]) lessonMap[l.id] = l.title
+      }
+    }
+    const mats: MaterialWithCtx[] = rawMaterials.map((m) => ({
+      ...m,
+      week_number: weekMap[m.week_id] ?? 0,
+      lesson_title: m.lesson_id ? lessonMap[m.lesson_id] ?? null : null,
+    }))
+
+    const lb: Record<string, string[]> = {}
+    for (const l of likesList) (lb[l.post_id] ??= []).push(l.student_id)
+
+    setPosts(postsList)
+    setComments(commentsList)
+    setLikesByPost(lb)
+    setProfilesMap(profMap)
+    setSignedUrls(signed)
+    setMaterials(mats)
+
+    if (!rRes.error) setRanking((rRes.data ?? []) as RankRow[])
+    const bArr = (bRes.data ?? []) as BestRow[]
+    setBest(bArr[0] ?? null)
+
+    setStats({
+      students: ((stRes.data ?? []) as unknown[]).length,
+      lessons: ((lsRes.data ?? []) as unknown[]).length,
+      materials: rawMaterials.length,
+      weeks: ((wkRes.data ?? []) as unknown[]).length,
+      questions: ((qRes.data ?? []) as unknown[]).length,
+      attempts: ((atRes.data ?? []) as unknown[]).length,
+    })
+
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { void loadAll() }, [loadAll])
+
+  async function toggleLike(postId: string) {
+    if (!supabase || !me) return
+    const liked = (likesByPost[postId] ?? []).includes(me)
+    if (liked) {
+      const { error } = await supabase.from('post_likes').delete().eq('post_id', postId).eq('student_id', me)
+      if (error) setError(error.message)
+    } else {
+      const { error } = await supabase.from('post_likes').insert({ post_id: postId, student_id: me })
+      if (error) setError(error.message)
+    }
+    await loadAll()
   }
 
-  const stats = [
-    { label: 'أفضل طالب', value: ranking[0]?.name ?? '—', sub: ranking[0] ? ranking[0].percent + '%' : '' },
-    { label: 'أفضل درجة في نشاط', value: bestSingle.percent + '%', sub: bestSingle.name },
-    { label: 'متوسط إنجاز الصف', value: avgProgress + '%', sub: 'من المادة' },
-    { label: 'ترتيبك', value: '#' + myRank, sub: 'إنجازك ' + myProgress + '%' },
-  ]
+  async function addComment(postId: string, text: string) {
+    if (!supabase || !me) return
+    const t = text.trim(); if (!t) return
+    const { error } = await supabase.from('post_comments').insert({ post_id: postId, author_id: me, text: t })
+    if (error) { setError(error.message); return }
+    await loadAll()
+  }
+
+  async function deleteComment(id: string) {
+    if (!supabase) return
+    if (!window.confirm('حذف هذا التعليق؟')) return
+    const { error } = await supabase.from('post_comments').delete().eq('id', id)
+    if (error) setError(error.message); else await loadAll()
+  }
+
+  async function togglePin(p: PostRow) {
+    if (!supabase) return
+    const { error } = await supabase.from('posts').update({ pinned: !p.pinned }).eq('id', p.id)
+    if (error) setError(error.message); else await loadAll()
+  }
+
+  async function hidePost(p: PostRow) {
+    if (!supabase) return
+    if (!window.confirm(p.hidden ? 'إظهار المنشور للطلاب؟' : 'إخفاء المنشور عن الطلاب؟')) return
+    const { error } = await supabase.from('posts').update({ hidden: !p.hidden }).eq('id', p.id)
+    if (error) setError(error.message); else await loadAll()
+  }
+
+  async function deletePost(p: PostRow) {
+    if (!supabase) return
+    if (!window.confirm('حذف المنشور نهائيًا؟ سيُحذف معه كل تعليقاته.')) return
+    if (p.attachment_path) await supabase.storage.from(BUCKET).remove([p.attachment_path])
+    const { error } = await supabase.from('posts').delete().eq('id', p.id)
+    if (error) setError(error.message); else await loadAll()
+  }
+
+  async function openLinkedMaterial(m: MaterialWithCtx): Promise<string | null> {
+    if (m.kind === 'link' && m.url) return m.url
+    if (!supabase) return null
+    const path = m.view_path ?? m.download_path
+    if (!path) return null
+    const { data, error } = await supabase.storage.from(CURRICULUM_BUCKET).createSignedUrl(path, 86400)
+    if (error || !data) return null
+    const ext = (path.split('.').pop() ?? '').toLowerCase()
+    const officeExts = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'ods', 'odp']
+    if (officeExts.includes(ext)) {
+      return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(data.signedUrl)}`
+    }
+    return data.signedUrl
+  }
+
+  if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
+
+  const meRank = ranking.findIndex((r) => r.student_id === me) + 1
+  const meRow = ranking.find((r) => r.student_id === me)
+  const classAvg = ranking.length === 0 ? 0 : Math.round(ranking.reduce((t, r) => t + r.percent, 0) / ranking.length)
+  const top = ranking[0]
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h2 className="text-xl font-bold text-primary">المنصة</h2>
-        <DemoBadge />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-2xl border border-light-blue bg-white p-4">
-            <div className="text-sm text-ink/70">{s.label}</div>
-            <div className="mt-1 text-xl font-bold text-primary">{s.value}</div>
-            <div className="text-xs text-ink/60">{s.sub}</div>
+    <div className="space-y-5">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold">المنصة</h2>
+            <p className="mt-1 text-base text-white/85">
+              مرحبًا {profile?.full_name ?? ''} — مساحة المقرر المغلقة.
+            </p>
           </div>
-        ))}
-      </div>
-
-      <section className={card}>
-        <h3 className="text-lg font-bold text-primary">ترتيب الصف</h3>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-light-blue text-ink/70">
-                <th className={th}>#</th>
-                <th className={th}>الطالب</th>
-                <th className={th}>نسبة الدرجات</th>
-                <th className={th}>إنجاز المادة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ranking.map((r, i) => (
-                <tr key={r.no} className={'border-b border-light-blue/50 ' + (r.no === ME ? 'bg-surface font-semibold' : '')}>
-                  <td className="p-2">{i + 1}</td>
-                  <td className="p-2">{r.name}{r.no === ME ? ' (أنت)' : ''}</td>
-                  <td className="p-2">{r.percent}%</td>
-                  <td className="p-2">
-                    <div className="flex items-center gap-2">
-                      <div className="h-2.5 w-28 overflow-hidden rounded-full bg-surface">
-                        <div className="h-full bg-secondary" style={{ width: r.progress + '%' }} />
-                      </div>
-                      <span>{r.progress}%</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {isTeacher && (
+            <button
+              className="rounded-xl bg-white px-5 py-2.5 text-base font-semibold text-primary shadow-sm hover:bg-primary-soft"
+              onClick={() => setShowAdd(!showAdd)}
+            >
+              {showAdd ? 'إلغاء' : '+ منشور جديد'}
+            </button>
+          )}
+        </div>
+        <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
+          <span className="flex-[3] bg-accent" />
+          <span className="flex-1 bg-secondary" />
+          <span className="flex-1 bg-warning" />
         </div>
       </section>
 
-      {posts.length === 0 && (
-        <section className={card}>
-          <p className="text-ink/70">لا توجد منشورات بعد.</p>
-        </section>
+      {error && <p className="rounded-xl bg-error-soft p-3 text-sm font-semibold text-error">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <StatCard label="أفضل طالب" value={top?.full_name ?? '—'} sub={top ? `${top.percent}%` : 'لا بيانات'} />
+        <StatCard label="أفضل نشاط" value={best ? `${best.percent}%` : '—'} sub={best?.student_name ?? '—'} />
+        <StatCard label="متوسط الصف" value={`${classAvg}%`} sub={`${ranking.length} طالبًا`} />
+        <StatCard label="ترتيبك" value={meRank > 0 ? `#${meRank}` : '—'} sub={meRow ? `${meRow.percent}%` : '—'} />
+        <StatCard label="المواد" value={String(stats.materials)} sub={`${stats.lessons} درسًا`} />
+        <StatCard label="المشاركون" value={String(stats.students)} sub={`${stats.attempts} محاولة`} />
+      </div>
+
+      {isTeacher && showAdd && (
+        <AddPostForm
+          materials={materials}
+          onCreated={async () => { setShowAdd(false); await loadAll() }}
+          onCancel={() => setShowAdd(false)}
+        />
       )}
 
-      {posts.map((p) => {
-        const mat = p.materialId ? demoMaterials.find((m) => m.id === p.materialId) : undefined
-        const list = feed.comments.filter((c) => c.postId === p.id && !c.hidden)
-        const liked = Boolean(feed.liked[p.id])
-        return (
-          <section key={p.id} className={card}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Tag tone={kindTone[p.kind]}>{p.kind}</Tag>
-              {p.pinned && <Tag tone="wait">مثبّت</Tag>}
-              <span className="text-xs text-ink/60">{p.date}</span>
-            </div>
-            <h3 className="mt-2 text-lg font-bold text-primary">{p.title}</h3>
-            <p className="mt-2 whitespace-pre-line leading-7 text-ink/80">{p.body}</p>
-
-            {p.attachments && p.attachments.length > 0 && (<div className="mt-3 space-y-2">{p.attachments.map((a) => (<AttachmentView key={a.id} att={a} />))}</div>)}
-            {mat && (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-light-blue p-3">
-                <span className="text-sm">
-                  {mat.title} <span className="font-mono text-xs text-ink/60" dir="ltr">({mat.kind}، {mat.size})</span>
-                </span>
-                <button className="cursor-not-allowed rounded-xl border border-light-blue px-3 py-1.5 text-sm text-ink/50" disabled>
-                  تنزيل (تجريبي)
-                </button>
-              </div>
-            )}
-
-            <div className="mt-3">
-              <button className={btnOutline} onClick={() => toggleLike(p.id)}>
-                {liked ? 'أعجبني ✓' : 'إعجاب'} ({p.likes})
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-2 border-t border-light-blue/50 pt-3">
-              <div className="text-sm font-semibold text-ink/70">التعليقات ({list.length})</div>
-              {list.map((c) => (
-                <div key={c.id} className="rounded-xl bg-surface p-3 text-sm">
-                  <div className="font-semibold">{c.author}</div>
-                  <div className="mt-1 text-ink/80">{c.text}</div>
-                </div>
-              ))}
-              <div className="flex gap-2">
-                <input
-                  className={field + ' mt-0'}
-                  placeholder="اكتب تعليقًا..."
-                  value={drafts[p.id] ?? ''}
-                  onChange={(e) => setDrafts({ ...drafts, [p.id]: e.target.value })}
-                />
-                <button className={btn} onClick={() => send(p.id)}>إرسال</button>
-              </div>
-            </div>
-          </section>
-        )
-      })}
+      {posts.length === 0 ? (
+        <section className={card}><p className="text-ink-muted">لا منشورات بعد.</p></section>
+      ) : (
+        posts.map((p) => (
+          <PostCard
+            key={p.id}
+            post={p}
+            authorName={profilesMap[p.author_id]?.full_name ?? (p.author_id === me ? (profile?.full_name ?? '—') : '—')}
+            authorRole={profilesMap[p.author_id]?.role ?? (p.author_id === me ? (profile?.role ?? 'student') : 'student')}
+            attachmentUrl={signedUrls[p.id] ?? null}
+            comments={comments.filter((c) => c.post_id === p.id)}
+            likes={likesByPost[p.id] ?? []}
+            me={me}
+            isTeacher={isTeacher}
+            profilesMap={profilesMap}
+            currentProfile={profile}
+            linkedMaterial={p.linked_type === 'material' && p.linked_id ? materials.find((m) => m.id === p.linked_id) ?? null : null}
+            onOpenMaterial={(m) => void openLinkedMaterial(m).then((url) => { if (url) window.open(url, '_blank', 'noreferrer') })}
+            onLike={() => void toggleLike(p.id)}
+            onComment={(t) => void addComment(p.id, t)}
+            onDeleteComment={(id) => void deleteComment(id)}
+            onPin={() => void togglePin(p)}
+            onHide={() => void hidePost(p)}
+            onDelete={() => void deletePost(p)}
+          />
+        ))
+      )}
     </div>
   )
 }
 
+function StatCard({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-2xl border border-light-blue bg-white p-3 shadow-sm">
+      <div className="text-xs text-ink-muted">{label}</div>
+      <div className="mt-1 truncate text-lg font-bold text-primary">{value}</div>
+      <div className="mt-0.5 truncate text-xs text-ink-muted">{sub}</div>
+    </div>
+  )
+}
+
+function PostCard({
+  post, authorName, authorRole, attachmentUrl, comments, likes, me, isTeacher, profilesMap, currentProfile,
+  linkedMaterial, onOpenMaterial, onLike, onComment, onDeleteComment, onPin, onHide, onDelete,
+}: {
+  post: PostRow
+  authorName: string
+  authorRole: 'teacher' | 'student'
+  attachmentUrl: string | null
+  comments: CommentRow[]
+  likes: string[]
+  me: string
+  isTeacher: boolean
+  profilesMap: Record<string, ProfileLite>
+  currentProfile: { id: string; full_name: string; role: string } | null
+  linkedMaterial: MaterialWithCtx | null
+  onOpenMaterial: (m: MaterialWithCtx) => void
+  onLike: () => void
+  onComment: (text: string) => void
+  onDeleteComment: (id: string) => void
+  onPin: () => void
+  onHide: () => void
+  onDelete: () => void
+}) {
+  const [draft, setDraft] = useState('')
+  const [showComments, setShowComments] = useState(comments.length > 0)
+  const liked = likes.includes(me)
+
+  function send() {
+    const t = draft.trim(); if (!t) return
+    onComment(t); setDraft(''); setShowComments(true)
+  }
+
+  // اسم المعلق مع مراعاة show_names
+  function commenterName(authorId: string): { text: string; isMe: boolean } {
+    const isMe = authorId === me
+    if (post.show_names || isTeacher) {
+      const n = profilesMap[authorId]?.full_name
+        ?? (isMe ? currentProfile?.full_name : undefined)
+        ?? 'طالب'
+      return { text: n, isMe }
+    }
+    if (isMe) return { text: 'أنت', isMe: true }
+    return { text: 'طالب', isMe: false }
+  }
+
+  function commenterRole(authorId: string): 'teacher' | 'student' {
+    if (authorId === me && currentProfile?.role === 'teacher') return 'teacher'
+    return profilesMap[authorId]?.role ?? 'student'
+  }
+
+  const likesCount = likes.length
+  const likesText = likesCount === 0 ? 'إعجاب' : `إعجاب (${likesCount})`
+
+  return (
+    <section className={'rounded-2xl border bg-white shadow-sm ' + (post.pinned ? 'border-warning' : 'border-light-blue')}>
+      {post.pinned && (
+        <div className="rounded-t-2xl bg-warning-soft px-5 py-2 text-sm font-semibold text-ink">📌 منشور مثبّت</div>
+      )}
+      <div className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-soft text-lg font-bold text-primary">
+              {(authorName || '؟').charAt(0)}
+            </div>
+            <div>
+              <div className="font-semibold text-ink">
+                {authorName}
+                {authorRole === 'teacher' && (
+                  <span className="ms-2 rounded bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">أستاذ</span>
+                )}
+              </div>
+              <div className="text-xs text-ink-muted">
+                {timeAgo(post.created_at)}
+                {post.updated_at && ' — عُدّل'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">
+              {KIND_EMOJI[post.kind]} {KIND_LABEL[post.kind]}
+            </span>
+            {isTeacher && (
+              <>
+                <button className={btnOutline} onClick={onPin}>{post.pinned ? 'إلغاء التثبيت' : 'تثبيت'}</button>
+                <button className={btnOutline} onClick={onHide}>{post.hidden ? 'إظهار' : 'إخفاء'}</button>
+                <button className={btnDanger} onClick={onDelete}>حذف</button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {post.title && <h3 className="mt-4 text-xl font-bold text-primary">{post.title}</h3>}
+        {post.body && (
+          <p className="mt-2 whitespace-pre-wrap break-words text-base leading-8 text-ink">
+            {renderWithLinks(post.body)}
+          </p>
+        )}
+
+        {post.kind === 'image' && attachmentUrl && (
+          <div className="mt-4 overflow-hidden rounded-xl border border-light-blue">
+            <img src={attachmentUrl} alt={post.title ?? ''} className="max-h-96 w-full object-contain" />
+          </div>
+        )}
+        {post.kind === 'file' && attachmentUrl && (
+          <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-light-blue bg-bg p-3 hover:bg-primary-soft" href={attachmentUrl} target="_blank" rel="noreferrer">
+            <span className="text-sm font-semibold text-ink">📎 {post.title ?? 'ملف مرفق'}</span>
+            <span className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white">فتح الملف</span>
+          </a>
+        )}
+        {(post.kind === 'link' || post.kind === 'video') && post.external_url && (
+          <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-light-blue bg-bg p-3 hover:bg-primary-soft" href={post.external_url} target="_blank" rel="noreferrer">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-ink">
+                {post.kind === 'video' ? '🎥 ' : '🔗 '}{post.title ?? 'رابط'}
+              </div>
+              <div className="mt-1 truncate text-xs text-ink-muted" dir="ltr">{post.external_url}</div>
+            </div>
+            <span className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white">
+              {post.kind === 'video' ? 'مشاهدة' : 'فتح'}
+            </span>
+          </a>
+        )}
+
+        {/* مادة مرتبطة من المنهج */}
+        {linkedMaterial && (
+          <div className="mt-4 rounded-xl border-2 border-accent bg-accent-soft/30 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-primary">📚 مادة من المنهج</div>
+                <div className="mt-1 truncate text-sm font-semibold text-ink">
+                  {linkedMaterial.kind === 'link' ? '🔗 ' : linkedMaterial.kind === 'slides' ? '📊 ' : '📄 '}
+                  {linkedMaterial.title}
+                </div>
+                <div className="mt-1 text-xs text-ink-muted">
+                  الأسبوع {linkedMaterial.week_number}
+                  {linkedMaterial.lesson_title ? ` — ${linkedMaterial.lesson_title}` : ''}
+                </div>
+              </div>
+              <button
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover"
+                onClick={() => onOpenMaterial(linkedMaterial)}
+              >
+                فتح المادة
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-light-blue/50 pt-3">
+          <button
+            className={
+              'rounded-xl border px-4 py-1.5 text-sm font-semibold transition ' +
+              (liked ? 'border-error bg-error-soft text-error' : 'border-light-blue bg-white text-ink-muted hover:bg-primary-soft')
+            }
+            onClick={onLike}
+          >
+            {liked ? '❤️' : '🤍'} {likesText}
+          </button>
+          {post.allow_comments && (
+            <button
+              className="rounded-xl border border-light-blue bg-white px-4 py-1.5 text-sm font-semibold text-ink-muted hover:bg-primary-soft"
+              onClick={() => setShowComments(!showComments)}
+            >
+              💬 تعليقات ({comments.length})
+            </button>
+          )}
+          {!post.show_names && !isTeacher && (
+            <span className="rounded-lg bg-bg px-3 py-1 text-xs text-ink-muted">👤 الأسماء مخفية</span>
+          )}
+        </div>
+
+        {!post.allow_comments && (
+          <p className="mt-3 rounded-lg bg-bg p-3 text-sm text-ink-muted">التعليقات معطّلة لهذا المنشور.</p>
+        )}
+
+        {post.allow_comments && showComments && (
+          <div className="mt-4 space-y-3 border-t border-light-blue/50 pt-3">
+            {comments.map((c) => {
+              const { text: cName } = commenterName(c.author_id)
+              const cRole = commenterRole(c.author_id)
+              const canDelete = isTeacher || c.author_id === me
+              return (
+                <div key={c.id} className="rounded-xl bg-bg p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{cName}</span>
+                        {cRole === 'teacher' && (
+                          <span className="rounded bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">أستاذ</span>
+                        )}
+                        <span className="text-xs text-ink-muted">{timeAgo(c.created_at)}</span>
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-7 text-ink">
+                        {renderWithLinks(c.text)}
+                      </p>
+                    </div>
+                    {canDelete && (
+                      <button className="text-xs text-error hover:underline" onClick={() => onDeleteComment(c.id)}>حذف</button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+
+            <div className="flex gap-2">
+              <input
+                className={input + ' mt-0'}
+                placeholder="اكتب تعليقًا..."
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') send() }}
+              />
+              <button className={btn} onClick={send}>إرسال</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function AddPostForm({ materials, onCreated, onCancel }: {
+  materials: MaterialWithCtx[]
+  onCreated: () => void
+  onCancel: () => void
+}) {
+  const [kind, setKind] = useState<PostKind>('announcement')
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [url, setUrl] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [pinned, setPinned] = useState(false)
+  const [allowComments, setAllowComments] = useState(true)
+  const [showNames, setShowNames] = useState(false)
+  const [linkedMaterialId, setLinkedMaterialId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [fileKey, setFileKey] = useState(0)
+
+  function resetAll() {
+    setKind('announcement'); setTitle(''); setBody(''); setUrl(''); setFile(null)
+    setPinned(false); setAllowComments(true); setShowNames(false); setLinkedMaterialId('')
+    setFileKey((k) => k + 1)
+  }
+
+  async function submit() {
+    if (!supabase) return
+    setErr(null)
+
+    if ((kind === 'image' || kind === 'file') && !file) { setErr('اختر ملفًا.'); return }
+    if ((kind === 'link' || kind === 'video') && !/^https:\/\//i.test(url.trim())) {
+      setErr('الرابط يجب أن يبدأ بـ https://'); return
+    }
+    if ((kind === 'announcement' || kind === 'post') && !body.trim() && !title.trim()) {
+      setErr('اكتب نصًا أو عنوانًا.'); return
+    }
+
+    setBusy(true)
+    let attachmentPath: string | null = null
+
+    try {
+      if ((kind === 'image' || kind === 'file') && file) {
+        const uuid = crypto.randomUUID()
+        attachmentPath = `posts/${uuid}.${extOf(file.name)}`
+        const { error: upErr } = await supabase.storage.from(BUCKET).upload(attachmentPath, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        })
+        if (upErr) { setErr('فشل رفع الملف: ' + upErr.message); setBusy(false); return }
+      }
+
+      const u = await supabase.auth.getUser()
+      const { error: insErr } = await supabase.from('posts').insert({
+        author_id: u.data.user?.id,
+        kind,
+        title: title.trim() || null,
+        body: body.trim() || null,
+        attachment_path: attachmentPath,
+        external_url: (kind === 'link' || kind === 'video') ? url.trim() : null,
+        pinned,
+        allow_comments: allowComments,
+        show_names: showNames,
+        linked_type: linkedMaterialId ? 'material' : null,
+        linked_id: linkedMaterialId || null,
+      })
+
+      if (insErr) {
+        if (attachmentPath) await supabase.storage.from(BUCKET).remove([attachmentPath])
+        setErr('فشل النشر: ' + insErr.message); setBusy(false); return
+      }
+
+      resetAll()
+      onCreated()
+    } finally { setBusy(false) }
+  }
+
+  const isFileKind = kind === 'image' || kind === 'file'
+  const isUrlKind = kind === 'link' || kind === 'video'
+
+  return (
+    <section className={card}>
+      <h3 className="text-xl font-bold text-primary">منشور جديد</h3>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <label className={label}>النوع</label>
+          <select className={input} value={kind} onChange={(e) => setKind(e.target.value as PostKind)}>
+            <option value="announcement">📢 إعلان</option>
+            <option value="post">📝 منشور نصي</option>
+            <option value="image">🖼️ صورة</option>
+            <option value="file">📎 ملف</option>
+            <option value="video">🎥 فيديو (رابط)</option>
+            <option value="link">🔗 رابط</option>
+          </select>
+        </div>
+        <div>
+          <label className={label}>ربط بمادة من المنهج (اختياري)</label>
+          <select className={input} value={linkedMaterialId} onChange={(e) => setLinkedMaterialId(e.target.value)}>
+            <option value="">— بدون ربط —</option>
+            {materials.map((m) => (
+              <option key={m.id} value={m.id}>
+                الأسبوع {m.week_number} — {m.lesson_title ?? 'بدون درس'} — {m.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <label className={label}>عنوان (اختياري)</label>
+        <input className={input} value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+
+      <div className="mt-4">
+        <label className={label}>النص</label>
+        <textarea className={input} rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+        <p className="mt-1 text-xs text-ink-muted">يمكن لصق روابط داخل النص — ستظهر قابلة للنقر تلقائيًا.</p>
+      </div>
+
+      {isFileKind && (
+        <div className="mt-4">
+          <label className={label}>الملف</label>
+          <input key={fileKey} type="file" accept={kind === 'image' ? 'image/*' : undefined} className={input} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          {file && <p className="mt-1 text-xs text-ink-muted">{file.name} — {(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
+        </div>
+      )}
+
+      {isUrlKind && (
+        <div className="mt-4">
+          <label className={label}>الرابط (https)</label>
+          <input className={input} dir="ltr" placeholder="https://..." value={url} onChange={(e) => setUrl(e.target.value)} />
+        </div>
+      )}
+
+      <div className="mt-5 grid gap-3 rounded-xl border border-light-blue bg-bg p-4 md:grid-cols-3">
+        <label className="flex items-center gap-2 text-base">
+          <input type="checkbox" checked={allowComments} onChange={(e) => setAllowComments(e.target.checked)} className="h-5 w-5" />
+          <span>السماح بالتعليق</span>
+        </label>
+        <label className="flex items-center gap-2 text-base">
+          <input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} className="h-5 w-5" />
+          <span>إظهار أسماء المعلّقين</span>
+        </label>
+        <label className="flex items-center gap-2 text-base">
+          <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} className="h-5 w-5" />
+          <span>تثبيت في الأعلى</span>
+        </label>
+      </div>
+
+      {err && <p className="mt-3 text-sm font-semibold text-error">{err}</p>}
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button className={btn} onClick={submit} disabled={busy}>{busy ? 'جارٍ النشر...' : 'نشر'}</button>
+        <button className={btnOutline} onClick={onCancel} disabled={busy}>إلغاء</button>
+      </div>
+    </section>
+  )
+}

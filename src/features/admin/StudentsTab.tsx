@@ -20,19 +20,25 @@ interface CreatedRow {
 const CREATE_FN = 'smooth-task'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-6'
-const btn =
-  'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60'
-const btnOutline =
-  'rounded-xl border border-primary bg-white px-3 py-1.5 text-sm font-semibold text-primary transition hover:bg-surface disabled:opacity-60'
+const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60'
+const btnOutline = 'rounded-xl border border-primary bg-white px-3 py-1.5 text-sm font-semibold text-primary transition hover:bg-surface disabled:opacity-60'
+const btnDanger = 'rounded-xl border border-error bg-white px-3 py-1.5 text-sm font-semibold text-error transition hover:bg-error-soft disabled:opacity-60'
+const input = 'mt-1 w-full rounded-xl border border-light-blue p-2 text-ink'
 
 export default function StudentsTab() {
   const [rows, setRows] = useState<StudentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [names, setNames] = useState('')
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<CreatedRow[] | null>(null)
+
+  // edit state
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editUni, setEditUni] = useState('')
 
   const load = useCallback(async () => {
     if (!supabase) return
@@ -67,6 +73,7 @@ export default function StudentsTab() {
     }
     setBusy(true)
     setError(null)
+    setSuccess(null)
     const { data, error: err } = await supabase.functions.invoke(CREATE_FN, {
       body: { students: list },
     })
@@ -89,6 +96,54 @@ export default function StudentsTab() {
       .eq('id', r.id)
     if (err) setError('تعذّر تغيير حالة الطالب.')
     else void load()
+  }
+
+  function startEdit(r: StudentRow) {
+    setEditingId(r.id)
+    setEditName(r.full_name)
+    setEditUni(r.university_no ?? '')
+    setError(null)
+    setSuccess(null)
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditName('')
+    setEditUni('')
+  }
+
+  async function saveEdit(r: StudentRow) {
+    if (!supabase) return
+    if (!editName.trim()) {
+      setError('الاسم مطلوب.')
+      return
+    }
+    setBusy(true); setError(null); setSuccess(null)
+    const { error: rpcErr } = await supabase.rpc('update_student', {
+      p_student_id: r.id,
+      p_full_name: editName.trim(),
+      p_university_no: editUni.trim() || null,
+    })
+    setBusy(false)
+    if (rpcErr) { setError('تعذّر التعديل: ' + rpcErr.message); return }
+    setSuccess('تم تعديل بيانات الطالب.')
+    cancelEdit()
+    await load()
+  }
+
+  async function deleteStudent(r: StudentRow) {
+    if (!supabase) return
+    const msg = `حذف الطالب «${r.full_name}» نهائيًا؟\n\nسيُحذف حسابه وملفه وكل محاولاته وإجاباته ودرجاته. لا يمكن التراجع.`
+    if (!window.confirm(msg)) return
+    setBusy(true); setError(null); setSuccess(null)
+    const { data, error: rpcErr } = await supabase.rpc('delete_student', {
+      p_student_id: r.id,
+    })
+    setBusy(false)
+    if (rpcErr) { setError('تعذّر الحذف: ' + rpcErr.message); return }
+    const count = (data as { deleted_attempts?: number } | null)?.deleted_attempts ?? 0
+    setSuccess(`تم حذف الطالب و${count} محاولة مرتبطة به.`)
+    await load()
   }
 
   function copyCreated() {
@@ -132,6 +187,7 @@ export default function StudentsTab() {
         )}
 
         {error && <p className="mt-3 text-sm font-semibold text-error">{error}</p>}
+        {success && <p className="mt-3 text-sm font-semibold text-secondary">{success}</p>}
       </section>
 
       {created && (
@@ -186,25 +242,70 @@ export default function StudentsTab() {
                 <tr className="border-b border-light-blue text-ink/70">
                   <th className="p-2 text-start">الاسم</th>
                   <th className="p-2 text-start">الرقم التعريفي</th>
+                  <th className="p-2 text-start">الرقم الجامعي</th>
                   <th className="p-2 text-start">الحالة</th>
                   <th className="p-2 text-start">إجراء</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-light-blue/50">
-                    <td className="p-2">{r.full_name}</td>
-                    <td className="p-2 font-mono" dir="ltr">{r.student_no}</td>
-                    <td className={statusClass(r.active)}>
-                      {r.active ? 'مفعّل' : 'معطّل'}
-                    </td>
-                    <td className="p-2">
-                      <button className={btnOutline} onClick={() => toggleActive(r)}>
-                        {r.active ? 'تعطيل' : 'تفعيل'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const isEditing = editingId === r.id
+                  return (
+                    <tr key={r.id} className="border-b border-light-blue/50 align-top">
+                      {isEditing ? (
+                        <>
+                          <td className="p-2">
+                            <input
+                              className={input + ' mt-0'}
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                            />
+                          </td>
+                          <td className="p-2 font-mono" dir="ltr">{r.student_no ?? '—'}</td>
+                          <td className="p-2">
+                            <input
+                              className={input + ' mt-0'}
+                              dir="ltr"
+                              value={editUni}
+                              onChange={(e) => setEditUni(e.target.value)}
+                            />
+                          </td>
+                          <td className={statusClass(r.active)}>
+                            {r.active ? 'مفعّل' : 'معطّل'}
+                          </td>
+                          <td className="p-2">
+                            <div className="flex flex-wrap gap-1">
+                              <button className={btn} onClick={() => void saveEdit(r)} disabled={busy}>حفظ</button>
+                              <button className={btnOutline} onClick={cancelEdit} disabled={busy}>إلغاء</button>
+                            </div>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="p-2">{r.full_name}</td>
+                          <td className="p-2 font-mono" dir="ltr">{r.student_no ?? '—'}</td>
+                          <td className="p-2 font-mono text-xs" dir="ltr">{r.university_no ?? '—'}</td>
+                          <td className={statusClass(r.active)}>
+                            {r.active ? 'مفعّل' : 'معطّل'}
+                          </td>
+                          <td className="p-2">
+                            <div className="flex flex-wrap gap-1">
+                              <button className={btnOutline} onClick={() => toggleActive(r)} disabled={busy}>
+                                {r.active ? 'تعطيل' : 'تفعيل'}
+                              </button>
+                              <button className={btnOutline} onClick={() => startEdit(r)} disabled={busy}>
+                                تعديل
+                              </button>
+                              <button className={btnDanger} onClick={() => void deleteStudent(r)} disabled={busy}>
+                                حذف
+                              </button>
+                            </div>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

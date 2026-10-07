@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
@@ -9,6 +9,7 @@ const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text
 const label = 'text-base font-semibold text-primary'
 
 type QType = 'mcq' | 'tf' | 'essay_smart' | 'essay_reasoning'
+type View = 'questions' | 'results'
 
 interface Activity { id: string; week_id: string; title: string; open: boolean; release: string }
 interface Week { id: string; number: number; title: string }
@@ -16,6 +17,26 @@ interface Question { id: string; type: QType; text: string; score: number }
 interface Option { id: string; question_id: string; label: string; text: string; position: number }
 interface Key { question_id: string; correct_option_id: string | null; correct_tf: boolean | null; model_answer: string | null; grading_criteria: string | null; internal_note: string | null }
 interface AQ { activity_id: string; question_id: string; position: number }
+
+interface AttemptRaw {
+  id: string
+  activity_id: string
+  student_id: string
+  auto_score: number
+  manual_score: number | null
+  status: string
+  submitted_at: string
+}
+interface AttemptRow extends AttemptRaw { student_name: string }
+
+interface AnswerRow {
+  id: string
+  question_id: string
+  option_id: string | null
+  text_answer: string | null
+  is_correct: boolean | null
+  awarded_score: number | null
+}
 
 const TYPE_LABEL: Record<QType, string> = {
   mcq: 'اختيار من متعدد',
@@ -26,7 +47,6 @@ const TYPE_LABEL: Record<QType, string> = {
 
 const TYPE_ORDER: QType[] = ['mcq', 'tf', 'essay_smart', 'essay_reasoning']
 
-// بطاقات بيضاء هادئة، وشريط جانبي رفيع بلون من هوية الجامعة لكل نوع
 const TYPE_STYLE: Record<QType, { headerBg: string; headerText: string; badgeBg: string }> = {
   mcq:             { headerBg: 'border-s-primary',   headerText: 'text-ink-muted', badgeBg: 'bg-primary-soft text-primary border-primary/20' },
   tf:              { headerBg: 'border-s-secondary', headerText: 'text-ink-muted', badgeBg: 'bg-secondary-soft text-secondary border-secondary/20' },
@@ -82,6 +102,12 @@ export default function QuizSetsTab() {
     mcq: true, tf: false, essay_smart: false, essay_reasoning: false,
   })
 
+  const [view, setView] = useState<View>('questions')
+  const [attempts, setAttempts] = useState<AttemptRow[]>([])
+  const [gradingAttemptId, setGradingAttemptId] = useState<string | null>(null)
+  const [gradingAnswers, setGradingAnswers] = useState<AnswerRow[]>([])
+  const [grades, setGrades] = useState<Record<string, string>>({})
+
   const loadActivities = useCallback(async () => {
     if (!supabase) return
     const [a, w] = await Promise.all([
@@ -117,8 +143,68 @@ export default function QuizSetsTab() {
     setKeys(km)
   }, [selectedId])
 
+  const loadAttempts = useCallback(async () => {
+    if (!supabase || !selectedId) return
+    setBusy(true)
+    const at = await supabase
+      .from('attempts')
+      .select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at')
+      .eq('activity_id', selectedId)
+      .order('submitted_at')
+    if (at.error) { setError('تعذّر تحميل المحاولات: ' + at.error.message); setBusy(false); return }
+    const list = (at.data ?? []) as AttemptRaw[]
+    const sids = Array.from(new Set(list.map((x) => x.student_id)))
+    const names: Record<string, string> = {}
+    if (sids.length > 0) {
+      const pr = await supabase.from('profiles').select('id,full_name').in('id', sids)
+      if (!pr.error) {
+        for (const p of (pr.data ?? []) as { id: string; full_name: string }[]) names[p.id] = p.full_name
+      }
+    }
+    setAttempts(list.map((x) => ({ ...x, student_name: names[x.student_id] ?? '—' })))
+    setBusy(false)
+  }, [selectedId])
+
   useEffect(() => { void loadActivities() }, [loadActivities])
   useEffect(() => { void loadQuestions() }, [loadQuestions])
+  useEffect(() => { if (view === 'results' && selectedId) void loadAttempts() }, [view, selectedId, loadAttempts])
+
+  async function openGrading(attemptId: string) {
+    if (!supabase) return
+    setBusy(true); setError(null)
+    const an = await supabase
+      .from('answers')
+      .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
+      .eq('attempt_id', attemptId)
+    setBusy(false)
+    if (an.error) { setError(an.error.message); return }
+    const rows = (an.data ?? []) as AnswerRow[]
+    setGradingAnswers(rows)
+    const g: Record<string, string> = {}
+    for (const r of rows) if (r.awarded_score !== null) g[r.question_id] = String(r.awarded_score)
+    setGrades(g)
+    setGradingAttemptId(attemptId)
+  }
+
+  async function saveGrades() {
+    if (!supabase || !gradingAttemptId) return
+    const list: { question_id: string; score: number }[] = []
+    for (const [qid, raw] of Object.entries(grades)) {
+      const n = Number(raw)
+      if (Number.isFinite(n) && n >= 0) list.push({ question_id: qid, score: n })
+    }
+    setBusy(true); setError(null)
+    const { error: rpcErr } = await supabase.rpc('grade_attempt', {
+      p_attempt_id: gradingAttemptId,
+      p_grades: list,
+    })
+    setBusy(false)
+    if (rpcErr) { setError(rpcErr.message); return }
+    setGradingAttemptId(null)
+    setGradingAnswers([])
+    setGrades({})
+    await loadAttempts()
+  }
 
   function startAdd() { setDraft(emptyDraft()); setEditingId(null); setMode('add') }
 
@@ -221,7 +307,6 @@ export default function QuizSetsTab() {
   const selAct = activities.find((a) => a.id === selectedId)
   const selWeek = selAct ? weeks.find((w) => w.id === selAct.week_id) : null
   const sortedAq = [...aq].sort((a, b) => a.position - b.position)
-  const totalScore = questions.reduce((s, q) => s + q.score, 0)
   const answeredTypes = TYPE_ORDER.filter((t) => questions.some((q) => q.type === t)).length
   const progressPercent = questions.length === 0 ? 0 : Math.round((answeredTypes / TYPE_ORDER.length) * 100)
 
@@ -233,12 +318,11 @@ export default function QuizSetsTab() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold">بنك الأسئلة</h2>
-            <p className="mt-1 text-base text-white/85">إدارة أسئلة الأسبوع، تحريرها، ترتيبها، والنشر للطلاب.</p>
+            <p className="mt-1 text-base text-white/85">إدارة الأسئلة، عرض نتائج الطلاب، والتصحيح اليدوي.</p>
           </div>
           {selAct && (
             <button
@@ -266,29 +350,50 @@ export default function QuizSetsTab() {
                   return <option key={a.id} value={a.id} className="text-ink">الأسبوع {w?.number ?? '?'}: {a.title}</option>
                 })}
               </select>
-              {selAct && (
-                <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">
-                  {selWeek ? `الأسبوع ${selWeek.number} — ` : ''}{questions.length} سؤال — {totalScore} درجة
-                </span>
+
+              <div className="inline-flex rounded-xl bg-white/15 p-1 ring-1 ring-white/20">
+                <button
+                  className={(view === 'questions' ? 'bg-white text-primary shadow-sm' : 'text-white') + ' rounded-lg px-4 py-1.5 text-sm font-semibold transition'}
+                  onClick={() => setView('questions')}
+                >الأسئلة</button>
+                <button
+                  className={(view === 'results' ? 'bg-white text-primary shadow-sm' : 'text-white') + ' rounded-lg px-4 py-1.5 text-sm font-semibold transition'}
+                  onClick={() => setView('results')}
+                >النتائج</button>
+              </div>
+
+              {view === 'questions' && (
+                <button
+                  className="ms-auto rounded-xl bg-white px-5 py-2.5 text-base font-semibold text-primary shadow-sm transition hover:bg-primary-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+                  onClick={startAdd}
+                  disabled={busy}
+                >
+                  + سؤال جديد
+                </button>
               )}
-              <button
-                className="ms-auto rounded-xl bg-white px-5 py-2.5 text-base font-semibold text-primary shadow-sm transition hover:bg-primary-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
-                onClick={startAdd}
-                disabled={busy}
-              >
-                + سؤال جديد
-              </button>
+
+              {view === 'results' && (
+                <button
+                  className="ms-auto rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20 transition hover:bg-white/25 disabled:opacity-60"
+                  onClick={() => void loadAttempts()}
+                  disabled={busy}
+                >
+                  تحديث
+                </button>
+              )}
             </div>
 
-            <div className="mt-5">
-              <div className="flex justify-between text-sm text-white/85">
-                <span>تنوع الأسئلة</span>
-                <span>{answeredTypes} من {TYPE_ORDER.length} أنواع — {questions.length} سؤالًا</span>
+            {view === 'questions' && (
+              <div className="mt-5">
+                <div className="flex justify-between text-sm text-white/85">
+                  <span>تنوع الأسئلة</span>
+                  <span>{answeredTypes} من {TYPE_ORDER.length} أنواع — {questions.length} سؤالًا</span>
+                </div>
+                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/20">
+                  <div className="h-full rounded-full bg-gradient-to-l from-accent to-accent-soft transition-all" style={{ width: progressPercent + '%' }} />
+                </div>
               </div>
-              <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/20">
-                <div className="h-full rounded-full bg-gradient-to-l from-accent to-accent-soft transition-all" style={{ width: progressPercent + '%' }} />
-              </div>
-            </div>
+            )}
           </>
         )}
 
@@ -301,126 +406,234 @@ export default function QuizSetsTab() {
         </div>
       </section>
 
-      {mode === 'add' && (
-        <DraftEditor draft={draft} setDraft={setDraft} busy={busy} editing={!!editingId} onSave={() => void saveDraft()} onCancel={cancel} />
+      {view === 'questions' && (
+        <>
+          {mode === 'add' && (
+            <DraftEditor draft={draft} setDraft={setDraft} busy={busy} editing={!!editingId} onSave={() => void saveDraft()} onCancel={cancel} />
+          )}
+
+          {mode === 'list' && selAct && (
+            <div className="space-y-4">
+              {TYPE_ORDER.map((t) => {
+                const items = grouped[t]
+                const groupScore = items.reduce((s, link) => {
+                  const q = questions.find((x) => x.id === link.question_id)
+                  return s + (q?.score ?? 0)
+                }, 0)
+                const isOpen = open[t]
+                const style = TYPE_STYLE[t]
+                return (
+                  <section key={t} className={`overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-white shadow-sm transition hover:shadow-md ${style.headerBg}`}>
+                    <button
+                      className="flex w-full items-center justify-between gap-4 bg-white px-5 py-4 text-start transition hover:bg-primary-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                      onClick={() => setOpen({ ...open, [t]: !isOpen })}
+                    >
+                      <div className="flex items-center gap-4">
+                        <span className={`rounded-xl border px-4 py-1.5 text-lg font-bold ${style.badgeBg}`}>
+                          {TYPE_LABEL[t]}
+                        </span>
+                        <span className={`text-base font-semibold ${style.headerText}`}>
+                          {items.length} سؤال — {groupScore} درجة
+                        </span>
+                      </div>
+                      <span className={`text-2xl ${style.headerText} transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                    </button>
+
+                    {isOpen && (
+                      <ul className="space-y-3 border-t border-light-blue bg-bg p-4">
+                        {items.length === 0 && (
+                          <li className="rounded-xl bg-white p-4 text-center text-base text-ink-muted">لا أسئلة من هذا النوع.</li>
+                        )}
+                        {items.map((link, i) => {
+                          const q = questions.find((x) => x.id === link.question_id)
+                          if (!q) return null
+                          const qOpts = options[q.id] ?? []
+                          const k = keys[q.id]
+                          return (
+                            <li key={q.id} className="rounded-xl border border-light-blue bg-white p-4 shadow-sm">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+                                    <span className={`rounded-lg border px-2 py-0.5 font-semibold ${style.badgeBg}`}>{i + 1}</span>
+                                    <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-semibold text-primary">{q.score} درجة</span>
+                                    {k?.internal_note && (
+                                      <span className="rounded-lg bg-warning-soft px-2 py-0.5 font-semibold text-ink ring-1 ring-warning">⚠ يحتاج مراجعة</span>
+                                    )}
+                                  </div>
+                                  <div className="mt-3 whitespace-pre-wrap text-lg font-semibold leading-8 text-ink">{q.text}</div>
+                                  {q.type === 'mcq' && (
+                                    <ul className="mt-3 space-y-2 text-base">
+                                      {qOpts.map((o) => {
+                                        const isCorrect = o.id === k?.correct_option_id
+                                        return (
+                                          <li key={o.id} className={'flex items-center gap-3 rounded-lg border p-2 ' + (isCorrect ? 'border-secondary/40 bg-secondary-soft font-semibold text-secondary' : 'border-light-blue bg-white text-ink')}>
+                                            <span className="w-8 text-center font-bold">{o.label}</span>
+                                            <span>{o.text}</span>
+                                            {isCorrect && <span className="ms-auto pe-2 text-lg">✓</span>}
+                                          </li>
+                                        )
+                                      })}
+                                    </ul>
+                                  )}
+                                  {q.type === 'tf' && (
+                                    <div className="mt-3 text-lg">الإجابة: <b className={k?.correct_tf ? 'text-secondary' : 'text-error'}>{k?.correct_tf ? 'صح ✓' : 'خطأ ✗'}</b></div>
+                                  )}
+                                  {q.type.startsWith('essay') && k?.model_answer && (
+                                    <div className="mt-3 whitespace-pre-wrap rounded-lg border border-light-blue bg-primary-soft p-3 text-base text-ink">
+                                      <b className="text-primary">الإجابة النموذجية: </b>{k.model_answer}
+                                    </div>
+                                  )}
+                                  {k?.internal_note && (
+                                    <div className="mt-3 rounded-lg bg-warning-soft p-2 text-sm text-ink ring-1 ring-warning"><b>ملاحظة: </b>{k.internal_note}</div>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <button className={btnOutline} onClick={() => void move(q.id, -1, items)} disabled={busy || i === 0} title="أعلى">▲</button>
+                                  <button className={btnOutline} onClick={() => void move(q.id, 1, items)} disabled={busy || i === items.length - 1} title="أسفل">▼</button>
+                                  <button className={btnOutline} onClick={() => startEdit(q)} disabled={busy}>تحرير</button>
+                                  <button className={btnDanger} onClick={() => void deleteQuestion(q.id)} disabled={busy}>حذف</button>
+                                </div>
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </section>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
 
-      {mode === 'list' && selAct && (
-        <div className="space-y-4">
-          {TYPE_ORDER.map((t) => {
-            const items = grouped[t]
-            const groupScore = items.reduce((s, link) => {
-              const q = questions.find((x) => x.id === link.question_id)
-              return s + (q?.score ?? 0)
-            }, 0)
-            const isOpen = open[t]
-            const style = TYPE_STYLE[t]
-            return (
-              <section key={t} className={`overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-white shadow-sm transition hover:shadow-md ${style.headerBg}`}>
-                <button
-                  className="flex w-full items-center justify-between gap-4 bg-white px-5 py-4 text-start transition hover:bg-primary-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                  onClick={() => setOpen({ ...open, [t]: !isOpen })}
-                >
-                  <div className="flex items-center gap-4">
-                    <span className={`rounded-xl border px-4 py-1.5 text-lg font-bold ${style.badgeBg}`}>
-                      {TYPE_LABEL[t]}
-                    </span>
-                    <span className={`text-base font-semibold ${style.headerText}`}>
-                      {items.length} سؤال — {groupScore} درجة
-                    </span>
-                  </div>
-                  <span className={`text-2xl ${style.headerText} transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                    ▾
-                  </span>
-                </button>
+      {view === 'results' && selAct && (
+        <>
+          <section className={card}>
+            <h3 className="text-xl font-bold text-primary">
+              نتائج الطلاب — {selWeek ? `الأسبوع ${selWeek.number}` : ''}
+            </h3>
+            <p className="mt-1 text-sm text-ink-muted">{selAct.title}</p>
 
-                {isOpen && (
-                  <ul className="space-y-3 border-t border-light-blue bg-bg p-4">
-                    {items.length === 0 && (
-                      <li className="rounded-xl bg-white p-4 text-center text-base text-ink-muted">لا أسئلة من هذا النوع.</li>
-                    )}
-                    {items.map((link, i) => {
-                      const q = questions.find((x) => x.id === link.question_id)
-                      if (!q) return null
-                      const qOpts = options[q.id] ?? []
-                      const k = keys[q.id]
-                      return (
-                        <li key={q.id} className="rounded-xl border border-light-blue bg-white p-4 shadow-sm">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
-                                <span className={`rounded-lg border px-2 py-0.5 font-semibold ${style.badgeBg}`}>
-                                  {i + 1}
-                                </span>
-                                <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-semibold text-primary">
-                                  {q.score} درجة
-                                </span>
-                                {k?.internal_note && (
-                                  <span className="rounded-lg bg-warning-soft px-2 py-0.5 font-semibold text-ink ring-1 ring-warning">
-                                    ⚠ يحتاج مراجعة
-                                  </span>
-                                )}
-                              </div>
-                              <div className="mt-3 whitespace-pre-wrap text-lg font-semibold leading-8 text-ink">
-                                {q.text}
-                              </div>
-                              {q.type === 'mcq' && (
-                                <ul className="mt-3 space-y-2 text-base">
-                                  {qOpts.map((o) => {
-                                    const isCorrect = o.id === k?.correct_option_id
-                                    return (
-                                      <li
-                                        key={o.id}
-                                        className={
-                                          'flex items-center gap-3 rounded-lg border p-2 ' +
-                                          (isCorrect
-                                            ? 'border-secondary/40 bg-secondary-soft font-semibold text-secondary'
-                                            : 'border-light-blue bg-white text-ink')
-                                        }
-                                      >
-                                        <span className="w-8 text-center font-bold">{o.label}</span>
-                                        <span>{o.text}</span>
-                                        {isCorrect && <span className="ms-auto pe-2 text-lg">✓</span>}
-                                      </li>
-                                    )
-                                  })}
-                                </ul>
-                              )}
-                              {q.type === 'tf' && (
-                                <div className="mt-3 text-lg">
-                                  الإجابة:{' '}
-                                  <b className={k?.correct_tf ? 'text-secondary' : 'text-error'}>
-                                    {k?.correct_tf ? 'صح ✓' : 'خطأ ✗'}
-                                  </b>
-                                </div>
-                              )}
-                              {q.type.startsWith('essay') && k?.model_answer && (
-                                <div className="mt-3 whitespace-pre-wrap rounded-lg border border-light-blue bg-primary-soft p-3 text-base text-ink">
-                                  <b className="text-primary">الإجابة النموذجية: </b>{k.model_answer}
-                                </div>
-                              )}
-                              {k?.internal_note && (
-                                <div className="mt-3 rounded-lg bg-warning-soft p-2 text-sm text-ink ring-1 ring-warning">
-                                  <b>ملاحظة: </b>{k.internal_note}
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <button className={btnOutline} onClick={() => void move(q.id, -1, items)} disabled={busy || i === 0} title="أعلى">▲</button>
-                              <button className={btnOutline} onClick={() => void move(q.id, 1, items)} disabled={busy || i === items.length - 1} title="أسفل">▼</button>
-                              <button className={btnOutline} onClick={() => startEdit(q)} disabled={busy}>تحرير</button>
-                              <button className={btnDanger} onClick={() => void deleteQuestion(q.id)} disabled={busy}>حذف</button>
-                            </div>
+            {attempts.length === 0 ? (
+              <p className="mt-4 rounded-xl bg-bg p-4 text-center text-base text-ink-muted">لا محاولات بعد لهذا النشاط.</p>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-light-blue text-ink-muted">
+                      <th className="p-3 text-start">#</th>
+                      <th className="p-3 text-start">اسم الطالب</th>
+                      <th className="p-3 text-start">آلية</th>
+                      <th className="p-3 text-start">يدوية</th>
+                      <th className="p-3 text-start">المجموع</th>
+                      <th className="p-3 text-start">الحالة</th>
+                      <th className="p-3 text-start">إجراء</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attempts.map((a, i) => (
+                      <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
+                        <td className="p-3">{i + 1}</td>
+                        <td className="p-3 text-base font-semibold text-ink">{a.student_name}</td>
+                        <td className="p-3 font-semibold text-primary">{a.auto_score}</td>
+                        <td className="p-3">{a.manual_score ?? '—'}</td>
+                        <td className="p-3 text-lg font-bold text-secondary">{(a.auto_score + (a.manual_score ?? 0)).toFixed(1)}</td>
+                        <td className="p-3">
+                          {a.status === 'graded' ? (
+                            <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary ring-1 ring-secondary/20">مصحح</span>
+                          ) : (
+                            <span className="rounded-lg bg-warning-soft px-2 py-0.5 text-xs font-semibold text-ink ring-1 ring-warning">بانتظار التصحيح</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <button className={btnOutline} onClick={() => void openGrading(a.id)} disabled={busy}>عرض وتصحيح</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {gradingAttemptId && (
+            <section className={card}>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xl font-bold text-primary">تصحيح المحاولة</h3>
+                <button className={btnOutline} onClick={() => { setGradingAttemptId(null); setGradingAnswers([]); setGrades({}) }}>إغلاق</button>
+              </div>
+
+              <ul className="space-y-3">
+                {gradingAnswers.map((ans, i) => {
+                  const q = questions.find((x) => x.id === ans.question_id)
+                  if (!q) return null
+                  const qOpts = options[q.id] ?? []
+                  const chosen = qOpts.find((o) => o.id === ans.option_id)
+                  const isEssay = q.type.startsWith('essay')
+                  const style = TYPE_STYLE[q.type]
+                  return (
+                    <li key={ans.id} className="rounded-xl border border-light-blue bg-white p-4">
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+                        <span className={`rounded-lg border px-2 py-0.5 font-semibold ${style.badgeBg}`}>س{i + 1}</span>
+                        <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-semibold text-primary">{q.score} درجة</span>
+                        <span className="text-xs">{TYPE_LABEL[q.type]}</span>
+                      </div>
+                      <div className="mt-2 whitespace-pre-wrap text-base font-semibold text-ink">{q.text}</div>
+
+                      {q.type === 'mcq' && (
+                        <div className="mt-2 text-sm">
+                          اختار: <b>{chosen ? `${chosen.label}) ${chosen.text}` : '—'}</b>
+                          {' — '}
+                          {ans.is_correct ? <span className="font-semibold text-secondary">✓ صحيح</span> : <span className="font-semibold text-error">✗ خطأ</span>}
+                        </div>
+                      )}
+                      {q.type === 'tf' && (
+                        <div className="mt-2 text-sm">
+                          أجاب: <b>{ans.text_answer === 'true' ? 'صح' : ans.text_answer === 'false' ? 'خطأ' : '—'}</b>
+                          {' — '}
+                          {ans.is_correct ? <span className="font-semibold text-secondary">✓ صحيح</span> : <span className="font-semibold text-error">✗ خطأ</span>}
+                        </div>
+                      )}
+                      {isEssay && (
+                        <>
+                          <div className="mt-2 whitespace-pre-wrap rounded-lg bg-bg p-3 text-sm leading-7 text-ink">
+                            <b className="text-ink-muted">إجابة الطالب:</b><br />
+                            {ans.text_answer || <span className="text-ink-muted">— لم يجب —</span>}
                           </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </section>
-            )
-          })}
-        </div>
+                          {keys[ans.question_id]?.model_answer && (
+                            <div className="mt-2 whitespace-pre-wrap rounded-lg bg-primary-soft p-3 text-sm leading-7 text-ink">
+                              <b className="text-primary">الإجابة النموذجية: </b>{keys[ans.question_id]?.model_answer}
+                            </div>
+                          )}
+                          <div className="mt-3 flex items-center gap-3">
+                            <label className="text-sm font-semibold text-ink">الدرجة (من {q.score}):</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={q.score}
+                              step={0.5}
+                              className={input + ' mt-0 w-24'}
+                              value={grades[ans.question_id] ?? ''}
+                              onChange={(e) => setGrades({ ...grades, [ans.question_id]: e.target.value })}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className={btn} onClick={() => void saveGrades()} disabled={busy}>
+                  {busy ? 'جارٍ الحفظ...' : 'حفظ الدرجات'}
+                </button>
+                <button className={btnOutline} onClick={() => { setGradingAttemptId(null); setGradingAnswers([]); setGrades({}) }} disabled={busy}>إلغاء</button>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   )

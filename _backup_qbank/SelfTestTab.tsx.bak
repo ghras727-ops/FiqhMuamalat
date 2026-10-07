@@ -1,180 +1,204 @@
-﻿import { useState } from 'react'
-import { useAuth } from '../../app/auth-context'
-import DemoBadge from '../../components/DemoBadge'
-import { btn, btnOutline, card, field } from '../../components/ui'
-import {
-  getQuiz, isObjective, kindLabel, kindOrder, saveAttempt, summarize,
-  useAttempts, useQuizSets,
-} from '../../demo/quizsets'
-import { getPack, useWeekPacks } from '../../demo/weekpack'
+import { useCallback, useEffect, useState } from 'react'
+import { supabase } from '../../lib/supabase'
+
+const card = 'rounded-2xl border border-light-blue bg-white p-4'
+const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60'
+const btnOutline = 'rounded-xl border border-primary bg-white px-3 py-1.5 text-sm font-semibold text-primary hover:bg-surface disabled:opacity-60'
+const input = 'mt-1 w-full rounded-xl border border-light-blue p-2 text-ink'
+
+type QType = 'mcq' | 'tf' | 'essay_smart' | 'essay_reasoning'
+
+interface Activity { id: string; week_id: string; title: string; release: string }
+interface Week { id: string; number: number; title: string }
+interface Question { id: string; type: QType; text: string; score: number }
+interface Option { id: string; question_id: string; label: string; text: string; position: number }
+interface AQ { activity_id: string; question_id: string; position: number }
+interface Attempt { id: string; activity_id: string; auto_score: number; manual_score: number | null; status: string }
+
+interface AnswerState { optionId?: string; text?: string; tf?: string }
 
 export default function SelfTestTab() {
-  const { profile } = useAuth()
-  const quizzes = useQuizSets()
-  const packs = useWeekPacks()
-  const attempts = useAttempts()
-  const [week, setWeek] = useState<number | null>(null)
-  const [mode, setMode] = useState<'take' | 'result'>('take')
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const me = profile?.id ?? 'demo'
+  const [activities, setActivities] = useState<Activity[]>([])
+  const [weeks, setWeeks] = useState<Week[]>([])
+  const [attempts, setAttempts] = useState<Record<string, Attempt>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [running, setRunning] = useState<Activity | null>(null)
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [options, setOptions] = useState<Record<string, Option[]>>({})
+  const [aq, setAq] = useState<AQ[]>([])
+  const [answers, setAnswers] = useState<Record<string, AnswerState>>({})
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ auto: number; total: number } | null>(null)
 
-  const available = Object.values(quizzes)
-    .filter((q) => q.open && q.questions.length > 0)
-    .sort((a, b) => a.week - b.week)
+  const load = useCallback(async () => {
+    if (!supabase) return
+    setLoading(true)
+    const [a, w, at] = await Promise.all([
+      supabase.from('activities').select('id,week_id,title,release'),
+      supabase.from('weeks').select('id,number,title').order('number'),
+      supabase.from('attempts').select('id,activity_id,auto_score,manual_score,status'),
+    ])
+    if (a.error || w.error || at.error) {
+      setError('طھط¹ط°ظ‘ط± ط§ظ„طھط­ظ…ظٹظ„.')
+    } else {
+      setActivities((a.data ?? []) as Activity[])
+      setWeeks((w.data ?? []) as Week[])
+      const m: Record<string, Attempt> = {}
+      for (const t of (at.data ?? []) as Attempt[]) m[t.activity_id] = t
+      setAttempts(m)
+    }
+    setLoading(false)
+  }, [])
 
-  function title(n: number) {
-    const t = getPack(packs, n).title
-    return t === 'الأسبوع ' + n ? t : 'الأسبوع ' + n + ': ' + t
-  }
+  useEffect(() => { void load() }, [load])
 
-  function open(n: number, m: 'take' | 'result') {
+  async function start(act: Activity) {
+    if (!supabase) return
+    setError(null)
+    const [qRes, aqRes, oRes] = await Promise.all([
+      supabase.from('questions').select('id,type,text,score'),
+      supabase.from('activity_questions').select('activity_id,question_id,position').eq('activity_id', act.id).order('position'),
+      supabase.from('question_options').select('id,question_id,label,text,position').order('position'),
+    ])
+    if (qRes.error || aqRes.error || oRes.error) { setError('طھط¹ط°ظ‘ط± طھط­ظ…ظٹظ„ ط§ظ„ط£ط³ط¦ظ„ط©.'); return }
+    const aqList = (aqRes.data ?? []) as AQ[]
+    const ids = new Set(aqList.map((x) => x.question_id))
+    setQuestions(((qRes.data ?? []) as Question[]).filter((q) => ids.has(q.id)))
+    const om: Record<string, Option[]> = {}
+    for (const o of (oRes.data ?? []) as Option[]) {
+      if (ids.has(o.question_id)) (om[o.question_id] ??= []).push(o)
+    }
+    setOptions(om)
+    setAq(aqList)
     setAnswers({})
-    setMode(m)
-    setWeek(n)
+    setResult(null)
+    setRunning(act)
   }
 
-  if (week === null) {
+  async function submit() {
+    if (!supabase || !running) return
+    const list: { question_id: string; option_id?: string; text_answer?: string }[] = []
+    for (const q of questions) {
+      const a = answers[q.id]
+      if (!a) continue
+      if (q.type === 'mcq' && a.optionId) list.push({ question_id: q.id, option_id: a.optionId })
+      else if (q.type === 'tf' && a.tf) list.push({ question_id: q.id, text_answer: a.tf })
+      else if (q.type.startsWith('essay')) list.push({ question_id: q.id, text_answer: a.text ?? '' })
+    }
+    setBusy(true); setError(null)
+    const { data, error: rpcErr } = await supabase.rpc('submit_attempt', {
+      p_activity_id: running.id,
+      p_answers: list,
+    })
+    setBusy(false)
+    if (rpcErr) { setError(rpcErr.message); return }
+    const r = data as { auto_score: number; total_possible: number } | null
+    setResult({ auto: r?.auto_score ?? 0, total: r?.total_possible ?? 0 })
+    await load()
+  }
+
+  if (loading) return <section className={card}><p className="text-ink/70">ط¬ط§ط±ظچ ط§ظ„طھط­ظ…ظٹظ„...</p></section>
+
+  if (running && result) {
+    const total = questions.reduce((s, q) => s + q.score, 0)
+    const essayCount = questions.filter((q) => q.type.startsWith('essay')).length
     return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold text-primary">اختبر نفسك</h2>
-          <DemoBadge />
-        </div>
-        {available.length === 0 && (
-          <section className={card}>
-            <p className="text-ink/70">لا توجد اختبارات متاحة الآن.</p>
-          </section>
+      <section className={card}>
+        <h2 className="text-xl font-bold text-primary">ظ†طھظٹط¬ط© ط§ظ„ط§ط®طھط¨ط§ط±</h2>
+        <p className="mt-3">ط§ظ„ط¯ط±ط¬ط© ط§ظ„ط¢ظ„ظٹط©: <b>{result.auto}</b> ظ…ظ† <b>{total}</b></p>
+        {essayCount > 0 && (
+          <p className="mt-2 text-sm text-ink/70">
+            ظ„ط¯ظٹظƒ {essayCount} ط³ط¤ط§ظ„ظ‹ط§ ظ…ظ‚ط§ظ„ظٹظ‹ظ‘ط§ ط¨ط§ظ†طھط¸ط§ط± طھطµط­ظٹط­ ط§ظ„ط£ط³طھط§ط°. ط§ظ„ط¯ط±ط¬ط© ط§ظ„ظ†ظ‡ط§ط¦ظٹط© ط³طھظڈط¶ط§ظپ ظ„ط§ط­ظ‚ظ‹ط§.
+          </p>
         )}
-        {available.map((q) => {
-          const s = summarize(q.questions)
-          const a = attempts[me + ':' + q.week]
-          return (
-            <section key={q.week} className={card}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-bold text-primary">{title(q.week)}</h3>
-                  <p className="mt-1 text-sm text-ink/70">{q.questions.length} سؤالًا · مجموع الدرجات {s.total}</p>
-                  {a && a.autoMax > 0 && (
-                    <p className="mt-1 text-sm">
-                      آخر نتيجة: {a.last}/{a.autoMax} · أفضل نتيجة: {a.best}/{a.autoMax} · المحاولات: {a.count}
-                    </p>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  {a && <button className={btnOutline} onClick={() => open(q.week, 'result')}>عرض النتيجة</button>}
-                  <button className={btn} onClick={() => open(q.week, 'take')}>{a ? 'محاولة جديدة' : 'ابدأ'}</button>
-                </div>
-              </div>
-            </section>
-          )
-        })}
-      </div>
+        <button className={btn + ' mt-4'} onClick={() => { setRunning(null); setResult(null) }}>ط¹ظˆط¯ط©</button>
+      </section>
     )
   }
 
-  const quiz = getQuiz(quizzes, week)
-  const key = me + ':' + week
-  const att = attempts[key]
-  const ordered = kindOrder.flatMap((k) => quiz.questions.filter((q) => q.kind === k))
-
-  function submit() {
-    const marks: Record<string, boolean> = {}
-    let score = 0
-    let autoMax = 0
-    let essayMax = 0
-    let essayCount = 0
-    quiz.questions.forEach((q) => {
-      if (isObjective(q.kind)) {
-        autoMax += q.points
-        const ok = (answers[q.id] ?? '') === q.answer
-        marks[q.id] = ok
-        if (ok) score += q.points
-      } else {
-        essayMax += q.points
-        essayCount += 1
-      }
-    })
-    saveAttempt(key, { last: score, autoMax, essayMax, essayCount, marks })
-    setMode('result')
-  }
-
-  if (mode === 'result' && att) {
+  if (running) {
+    const sorted = [...aq].sort((a, b) => a.position - b.position)
     return (
-      <div className="space-y-4">
-        <section className={card}>
-          <h2 className="text-xl font-bold text-primary">{title(week)}</h2>
-          <div className="mt-3 text-3xl font-bold text-primary" dir="ltr">
-            {att.autoMax > 0 ? att.last + '/' + att.autoMax : '—'}
-          </div>
-          <p className="mt-1 text-sm text-ink/70">
-            درجة الأسئلة الموضوعية · أفضل نتيجة: {att.best}/{att.autoMax} · المحاولات: {att.count}
-          </p>
-          {att.essayCount > 0 && (
-            <p className="mt-2 text-sm">لديك {att.essayCount} أسئلة مقالية ({att.essayMax} درجة) بانتظار تصحيح الأستاذ.</p>
-          )}
-          <ul className="mt-4 space-y-1 text-sm">
-            {quiz.questions.filter((q) => isObjective(q.kind)).map((q) => {
-              const m = att.marks[q.id]
-              return (
-                <li key={q.id} className="flex gap-2">
-                  <span className={m === undefined ? 'text-ink/50' : m ? 'font-bold text-secondary' : 'font-bold text-error'}>
-                    {m === undefined ? '—' : m ? '✓' : '✗'}
-                  </span>
-                  <span>{q.text}</span>
-                </li>
-              )
-            })}
-          </ul>
-          <p className="mt-3 text-xs text-ink/60">تظهر علامة الصواب أو الخطأ فقط، والإجابات الصحيحة لا تُعرض.</p>
-          <div className="mt-4 flex gap-2">
-            <button className={btn} onClick={() => open(week, 'take')}>محاولة جديدة</button>
-            <button className={btnOutline} onClick={() => setWeek(null)}>رجوع إلى القائمة</button>
-          </div>
-        </section>
-      </div>
+      <section className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-xl font-bold text-primary">{running.title}</h2>
+          <button className={btnOutline} onClick={() => setRunning(null)} disabled={busy}>ط¥ظ„ط؛ط§ط،</button>
+        </div>
+        <div className="mt-4 space-y-5">
+          {sorted.map((link, i) => {
+            const q = questions.find((x) => x.id === link.question_id)
+            if (!q) return null
+            const qOpts = options[q.id] ?? []
+            const a = answers[q.id] ?? {}
+            return (
+              <div key={q.id} className="rounded-xl border border-light-blue p-3">
+                <div className="whitespace-pre-wrap font-semibold">{i + 1}. {q.text}</div>
+                <div className="mt-1 text-xs text-ink/60">{q.score} ط¯ط±ط¬ط©</div>
+                {q.type === 'mcq' && (
+                  <div className="mt-2 space-y-1">
+                    {qOpts.map((o) => (
+                      <label key={o.id} className="flex items-center gap-2 text-sm">
+                        <input type="radio" name={'q-' + q.id} checked={a.optionId === o.id} onChange={() => setAnswers({ ...answers, [q.id]: { optionId: o.id } })} />
+                        {o.label}) {o.text}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {q.type === 'tf' && (
+                  <div className="mt-2 space-y-1">
+                    <label className="flex items-center gap-2 text-sm"><input type="radio" name={'q-' + q.id} checked={a.tf === 'true'} onChange={() => setAnswers({ ...answers, [q.id]: { tf: 'true' } })} /> طµط­</label>
+                    <label className="flex items-center gap-2 text-sm"><input type="radio" name={'q-' + q.id} checked={a.tf === 'false'} onChange={() => setAnswers({ ...answers, [q.id]: { tf: 'false' } })} /> ط®ط·ط£</label>
+                  </div>
+                )}
+                {q.type.startsWith('essay') && (
+                  <textarea rows={5} className={input} value={a.text ?? ''} onChange={(e) => setAnswers({ ...answers, [q.id]: { text: e.target.value } })} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {error && <p className="mt-3 text-sm font-semibold text-error">{error}</p>}
+        <button className={btn + ' mt-4'} onClick={() => void submit()} disabled={busy}>
+          {busy ? 'ط¬ط§ط±ظچ ط§ظ„ط¥ط±ط³ط§ظ„...' : 'طھط³ظ„ظٹظ… ط§ظ„ط¥ط¬ط§ط¨ط§طھ'}
+        </button>
+      </section>
     )
   }
 
   return (
     <div className="space-y-4">
       <section className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xl font-bold text-primary">{title(week)}</h2>
-          <button className={btnOutline} onClick={() => setWeek(null)}>رجوع</button>
-        </div>
-        <div className="mt-4 space-y-5">
-          {ordered.map((q, i) => {
-            const choices = q.kind === 'mcq' ? q.options : q.kind === 'tf' ? ['صح', 'خطأ'] : []
-            const header = i === 0 || ordered[i - 1].kind !== q.kind
-            return (
-              <div key={q.id}>
-                {header && <h3 className="mb-2 mt-2 border-b border-light-blue pb-1 text-base font-bold text-secondary">{kindLabel[q.kind]}</h3>}
-                <div className="font-semibold">{i + 1}. {q.text} <span className="text-xs font-normal text-ink/60">({q.points} درجة)</span></div>
-                {choices.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {choices.map((c) => (
-                      <label key={c} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          name={'q-' + q.id}
-                          checked={answers[q.id] === c}
-                          onChange={() => setAnswers({ ...answers, [q.id]: c })}
-                        />
-                        {c}
-                      </label>
-                    ))}
+        <h2 className="text-xl font-bold text-primary">ط§ط®طھط¨ط± ظ†ظپط³ظƒ</h2>
+        {error && <p className="mt-3 text-sm font-semibold text-error">{error}</p>}
+        {activities.length === 0 ? (
+          <p className="mt-2 text-ink/70">ظ„ط§ طھظˆط¬ط¯ ط§ط®طھط¨ط§ط±ط§طھ ظ…طھط§ط­ط© ط§ظ„ط¢ظ†.</p>
+        ) : (
+          <ul className="mt-3 space-y-3">
+            {activities.map((a) => {
+              const w = weeks.find((x) => x.id === a.week_id)
+              const at = attempts[a.id]
+              return (
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-light-blue p-3">
+                  <div>
+                    <div className="font-semibold">{w ? `ط§ظ„ط£ط³ط¨ظˆط¹ ${w.number}: ` : ''}{a.title}</div>
+                    {at && (
+                      <div className="mt-1 text-xs text-ink/60">
+                        ط§ظ„ط¯ط±ط¬ط© ط§ظ„ط¢ظ„ظٹط©: {at.auto_score}
+                        {at.manual_score !== null && ` â€” ط§ظ„ط¯ط±ط¬ط© ط§ظ„ظ†ظ‡ط§ط¦ظٹط©: ${at.auto_score + at.manual_score}`}
+                      </div>
+                    )}
                   </div>
-                )}
-                {!isObjective(q.kind) && (
-                  <textarea rows={4} className={field} value={answers[q.id] ?? ''} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
-                )}
-              </div>
-            )
-          })}
-        </div>
-        <div className="mt-5">
-          <button className={btn} onClick={submit}>تسليم</button>
-        </div>
+                  {at ? (
+                    <span className="text-sm text-ink/60">ط£ظڈظ†ط¬ط²</span>
+                  ) : (
+                    <button className={btn} onClick={() => void start(a)}>ط§ط¨ط¯ط£ ط§ظ„ط§ط®طھط¨ط§ط±</button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </section>
     </div>
   )

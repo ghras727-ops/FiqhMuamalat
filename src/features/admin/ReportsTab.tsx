@@ -1,7 +1,44 @@
-﻿import { useState } from 'react'
-import DemoBadge from '../../components/DemoBadge'
-import { card, field, th } from '../../components/ui'
-import { demoActivities, demoResults, demoStudents, demoTopics, demoTopicScores } from '../../demo/data'
+﻿import { useCallback, useEffect, useState } from 'react'
+import { supabase } from '../../lib/supabase'
+
+const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
+const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
+const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink'
+const th = 'p-3 text-start text-ink-muted'
+
+interface Student { id: string; full_name: string; student_no: string | null }
+interface Week { id: string; number: number; title: string }
+interface Activity { id: string; title: string; week_id: string }
+interface AttemptRaw {
+  id: string
+  activity_id: string
+  student_id: string
+  auto_score: number
+  manual_score: number | null
+  status: string
+  submitted_at: string
+}
+interface AQ { activity_id: string; question_id: string }
+interface QScore { id: string; score: number }
+
+interface StudentRow {
+  student: Student
+  attempts: {
+    attempt: AttemptRaw
+    activity: Activity
+    week_number: number
+    total_possible: number
+  }[]
+}
+
+interface GroupRow {
+  activity: Activity
+  week_number: number
+  total_possible: number
+  attempts_count: number
+  avg_score: number
+  avg_percent: number
+}
 
 function barColor(p: number) {
   if (p < 50) return 'bg-error'
@@ -10,110 +47,271 @@ function barColor(p: number) {
 }
 
 export default function ReportsTab() {
-  const students = demoStudents.filter((s) => s.active)
-  const [studentNo, setStudentNo] = useState(students[0].no)
-  const acts = demoActivities.filter((a) => a.status !== 'draft')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [students, setStudents] = useState<Student[]>([])
+  const [studentRows, setStudentRows] = useState<StudentRow[]>([])
+  const [groupRows, setGroupRows] = useState<GroupRow[]>([])
+  const [selectedId, setSelectedId] = useState<string>('')
 
-  const mine = acts
-    .map((a) => ({ a, r: demoResults.find((x) => x.studentNo === studentNo && x.activityId === a.id) }))
-    .filter((x) => x.r !== undefined)
+  const load = useCallback(async () => {
+    if (!supabase) return
+    setLoading(true)
+    setError(null)
 
-  const group = acts.map((a) => {
-    const rs = demoResults.filter((r) => r.activityId === a.id)
-    const avg = rs.length === 0 ? 0 : rs.reduce((t, r) => t + r.score, 0) / rs.length
-    return { a, count: rs.length, avg }
-  })
+    // 1) All students
+    const stRes = await supabase
+      .from('profiles')
+      .select('id,full_name,student_no')
+      .eq('role', 'student')
+      .order('student_no', { ascending: true })
+
+    if (stRes.error) {
+      setError('تعذّر تحميل الطلاب: ' + stRes.error.message)
+      setLoading(false)
+      return
+    }
+    const stList = (stRes.data ?? []) as Student[]
+    setStudents(stList)
+    if (stList.length > 0) {
+      setSelectedId((prev) => prev || stList[0].id)
+    }
+
+    // 2) All attempts
+    const atRes = await supabase
+      .from('attempts')
+      .select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at')
+      .order('submitted_at', { ascending: false })
+
+    if (atRes.error) {
+      setError('تعذّر تحميل المحاولات: ' + atRes.error.message)
+      setLoading(false)
+      return
+    }
+    const attempts = (atRes.data ?? []) as AttemptRaw[]
+
+    // 3) Activities + weeks
+    const actIds = Array.from(new Set(attempts.map((a) => a.activity_id)))
+    const actMap: Record<string, Activity> = {}
+    const weekMap: Record<string, Week> = {}
+    if (actIds.length > 0) {
+      const acRes = await supabase.from('activities').select('id,title,week_id').in('id', actIds)
+      for (const a of (acRes.data ?? []) as Activity[]) actMap[a.id] = a
+      const wIds = Array.from(new Set(Object.values(actMap).map((a) => a.week_id)))
+      if (wIds.length > 0) {
+        const wRes = await supabase.from('weeks').select('id,number,title').in('id', wIds)
+        for (const w of (wRes.data ?? []) as Week[]) weekMap[w.id] = w
+      }
+    }
+
+    // 4) Total possible per activity
+    const totalByAct: Record<string, number> = {}
+    if (actIds.length > 0) {
+      const aqRes = await supabase
+        .from('activity_questions')
+        .select('activity_id,question_id')
+        .in('activity_id', actIds)
+      const qIds = Array.from(new Set(((aqRes.data ?? []) as AQ[]).map((x) => x.question_id)))
+      const qRes = qIds.length > 0
+        ? await supabase.from('questions').select('id,score').in('id', qIds)
+        : { data: [] as QScore[], error: null }
+      const scoreMap: Record<string, number> = {}
+      for (const q of (qRes.data ?? []) as QScore[]) scoreMap[q.id] = q.score
+      for (const link of (aqRes.data ?? []) as AQ[]) {
+        totalByAct[link.activity_id] = (totalByAct[link.activity_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
+      }
+    }
+
+    // 5) Per-student rows
+    const byStudent: Record<string, AttemptRaw[]> = {}
+    for (const a of attempts) {
+      (byStudent[a.student_id] ??= []).push(a)
+    }
+    const rows: StudentRow[] = stList.map((s) => ({
+      student: s,
+      attempts: (byStudent[s.id] ?? []).map((at) => {
+        const act = actMap[at.activity_id]
+        return {
+          attempt: at,
+          activity: act ?? { id: at.activity_id, title: '—', week_id: '' },
+          week_number: act ? (weekMap[act.week_id]?.number ?? 0) : 0,
+          total_possible: totalByAct[at.activity_id] ?? 0,
+        }
+      }),
+    }))
+    setStudentRows(rows)
+
+    // 6) Group rows (per activity)
+    const byActivity: Record<string, AttemptRaw[]> = {}
+    for (const a of attempts) {
+      (byActivity[a.activity_id] ??= []).push(a)
+    }
+    const gRows: GroupRow[] = Object.entries(byActivity).map(([aid, list]) => {
+      const act = actMap[aid] ?? { id: aid, title: '—', week_id: '' }
+      const total = totalByAct[aid] ?? 0
+      const avg = list.length === 0 ? 0 : list.reduce((t, r) => t + r.auto_score + (r.manual_score ?? 0), 0) / list.length
+      const pct = total === 0 ? 0 : Math.round((avg / total) * 100)
+      return {
+        activity: act,
+        week_number: act.week_id ? (weekMap[act.week_id]?.number ?? 0) : 0,
+        total_possible: total,
+        attempts_count: list.length,
+        avg_score: avg,
+        avg_percent: pct,
+      }
+    }).sort((a, b) => a.week_number - b.week_number)
+    setGroupRows(gRows)
+
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
+
+  const selected = studentRows.find((r) => r.student.id === selectedId)
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold text-primary">التقارير</h2>
-          <DemoBadge />
-        </div>
-        <button className="cursor-not-allowed rounded-xl border border-light-blue bg-white px-4 py-2 text-sm font-semibold text-ink/50" disabled>
-          تصدير PDF / Excel (قريبًا)
-        </button>
-      </div>
+    <div className="space-y-5">
+      <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
+        <h2 className="text-3xl font-bold">التقارير</h2>
+        <p className="mt-1 text-base text-white/85">تقارير فردية وجماعية للطلاب الحقيقيين.</p>
+      </section>
 
+      {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
+
+      {/* ============ تقرير فردي ============ */}
       <section className={card}>
-        <h3 className="text-lg font-bold text-primary">تقرير فردي</h3>
-        <div className="mt-3 max-w-sm">
-          <label className="text-sm font-semibold" htmlFor="rs">الطالب</label>
-          <select id="rs" className={field} value={studentNo} onChange={(e) => setStudentNo(e.target.value)}>
-            {students.map((s) => <option key={s.no} value={s.no}>{s.name} ({s.no})</option>)}
-          </select>
-        </div>
-        <div className="mt-4 overflow-x-auto">
-          {mine.length === 0 ? (
-            <p className="text-sm text-ink/60">لا توجد نتائج لهذا الطالب بعد.</p>
-          ) : (
+        <h3 className="text-xl font-bold text-primary">تقرير فردي</h3>
+
+        {students.length === 0 ? (
+          <p className="mt-4 rounded-xl bg-bg p-6 text-center text-base text-ink-muted">لا يوجد طلاب بعد.</p>
+        ) : (
+          <>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div className="w-full max-w-sm">
+                <label className="text-sm font-semibold text-ink">الطالب</label>
+                <select
+                  className={input}
+                  value={selectedId}
+                  onChange={(e) => setSelectedId(e.target.value)}
+                >
+                  {students.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}{s.student_no ? ` (${s.student_no})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button className={btnOutline} onClick={() => void load()}>تحديث</button>
+            </div>
+
+            {!selected || selected.attempts.length === 0 ? (
+              <p className="mt-4 rounded-xl bg-bg p-6 text-center text-base text-ink-muted">
+                لا توجد محاولات لهذا الطالب بعد.
+              </p>
+            ) : (
+              <>
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                  <span className="rounded-xl bg-primary-soft px-4 py-2 font-semibold text-primary">
+                    {selected.student.full_name}
+                  </span>
+                  {selected.student.student_no && (
+                    <span className="rounded-xl bg-bg px-4 py-2 font-mono text-ink-muted" dir="ltr">
+                      {selected.student.student_no}
+                    </span>
+                  )}
+                  <span className="rounded-xl bg-secondary-soft px-4 py-2 font-semibold text-secondary">
+                    {selected.attempts.length} محاولة
+                  </span>
+                </div>
+
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-light-blue">
+                        <th className={th}>الأسبوع</th>
+                        <th className={th}>النشاط</th>
+                        <th className={th}>آلية</th>
+                        <th className={th}>يدوية</th>
+                        <th className={th}>المجموع</th>
+                        <th className={th}>النسبة</th>
+                        <th className={th}>الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selected.attempts.map(({ attempt, activity, week_number, total_possible }) => {
+                        const total = attempt.auto_score + (attempt.manual_score ?? 0)
+                        const pct = total_possible === 0 ? 0 : Math.round((total / total_possible) * 100)
+                        return (
+                          <tr key={attempt.id} className="border-b border-light-blue/50 hover:bg-bg">
+                            <td className="p-3">الأسبوع {week_number}</td>
+                            <td className="p-3 text-base font-semibold text-ink">{activity.title}</td>
+                            <td className="p-3 font-semibold text-primary">{attempt.auto_score}</td>
+                            <td className="p-3">{attempt.manual_score ?? '—'}</td>
+                            <td className="p-3 text-lg font-bold text-secondary" dir="ltr">
+                              {total.toFixed(1)} / {total_possible}
+                            </td>
+                            <td className="p-3 font-semibold">{pct}%</td>
+                            <td className="p-3">
+                              {attempt.status === 'graded'
+                                ? <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary ring-1 ring-secondary/20">مصحح</span>
+                                : attempt.status === 'submitted'
+                                  ? <span className="rounded-lg bg-warning-soft px-2 py-0.5 text-xs font-semibold text-ink ring-1 ring-warning">بانتظار التصحيح</span>
+                                  : <span className="rounded-lg bg-ink/10 px-2 py-0.5 text-xs font-semibold text-ink-muted">قيد الإجابة</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* ============ تقرير جماعي ============ */}
+      <section className={card}>
+        <h3 className="text-xl font-bold text-primary">تقرير جماعي — حسب النشاط</h3>
+
+        {groupRows.length === 0 ? (
+          <p className="mt-4 rounded-xl bg-bg p-6 text-center text-base text-ink-muted">لا محاولات بعد.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-light-blue text-ink/70">
+                <tr className="border-b border-light-blue">
+                  <th className={th}>الأسبوع</th>
                   <th className={th}>النشاط</th>
-                  <th className={th}>الدرجة</th>
+                  <th className={th}>عدد المؤدّين</th>
+                  <th className={th}>المتوسط</th>
                   <th className={th}>النسبة</th>
+                  <th className={th}>الشريط</th>
                 </tr>
               </thead>
               <tbody>
-                {mine.map(({ a, r }) => (
-                  <tr key={a.id} className="border-b border-light-blue/50">
-                    <td className="p-2">{a.title}</td>
-                    <td className="p-2" dir="ltr">{r!.score}/{a.max}</td>
-                    <td className="p-2">{Math.round((r!.score / a.max) * 100)}%</td>
+                {groupRows.map((g) => (
+                  <tr key={g.activity.id} className="border-b border-light-blue/50 hover:bg-bg">
+                    <td className="p-3">الأسبوع {g.week_number}</td>
+                    <td className="p-3 text-base font-semibold text-ink">{g.activity.title}</td>
+                    <td className="p-3">{g.attempts_count}</td>
+                    <td className="p-3" dir="ltr">
+                      {g.avg_score.toFixed(1)} / {g.total_possible}
+                    </td>
+                    <td className="p-3 font-semibold">{g.avg_percent}%</td>
+                    <td className="p-3 w-40">
+                      <div className="h-3 overflow-hidden rounded-full bg-surface">
+                        <div className={'h-full ' + barColor(g.avg_percent)} style={{ width: g.avg_percent + '%' }} />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
-        </div>
-      </section>
-
-      <section className={card}>
-        <h3 className="text-lg font-bold text-primary">تقرير جماعي</h3>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-light-blue text-ink/70">
-                <th className={th}>النشاط</th>
-                <th className={th}>عدد المؤدّين</th>
-                <th className={th}>المتوسط</th>
-                <th className={th}>النسبة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {group.map(({ a, count, avg }) => (
-                <tr key={a.id} className="border-b border-light-blue/50">
-                  <td className="p-2">{a.title}</td>
-                  <td className="p-2">{count}</td>
-                  <td className="p-2" dir="ltr">{avg.toFixed(1)}/{a.max}</td>
-                  <td className="p-2">{Math.round((avg / a.max) * 100)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className={card}>
-        <h3 className="text-lg font-bold text-primary">تحليل نقاط الضعف (حسب الموضوع)</h3>
-        <div className="mt-3 space-y-4">
-          {demoTopicScores.map((t) => {
-            const name = demoTopics.find((x) => x.id === t.topicId)?.name
-            return (
-              <div key={t.topicId}>
-                <div className="flex justify-between text-sm">
-                  <span>{name}</span>
-                  <b>{t.percent}%</b>
-                </div>
-                <div className="mt-1 h-3 overflow-hidden rounded-full bg-surface">
-                  <div className={'h-full ' + barColor(t.percent)} style={{ width: t.percent + '%' }} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
+          </div>
+        )}
       </section>
     </div>
   )

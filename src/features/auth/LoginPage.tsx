@@ -28,17 +28,19 @@ export default function LoginPage() {
 
   return (
     <CenteredCard>
-      <div
-        className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-white"
-        aria-hidden="true"
-      >
-        <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5z" />
-          <path d="M12 6.5v13" />
-        </svg>
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-3xl border border-light-blue bg-white p-3 shadow-sm">
+        <img
+          src="/UST.png"
+          alt="شعار جامعة العلوم والتكنولوجيا"
+          className="h-full w-full object-contain"
+        />
       </div>
+
       <h1 className="text-4xl font-bold leading-tight text-primary">فقه المعاملات</h1>
-      <p className="mt-3 text-lg text-ink">المنصة التعليمية التفاعلية</p>
+      <p className="mt-2 text-lg text-ink-muted">المنصة التعليمية التفاعلية</p>
+      <p className="mt-3 text-sm font-semibold text-primary">
+        مدرس المقرر: د. محمد إسماعيل
+      </p>
 
       <form onSubmit={onSubmit} noValidate className="mt-8 space-y-5 text-start">
         {!isSupabaseConfigured && (
@@ -64,7 +66,7 @@ export default function LoginPage() {
             autoCorrect="off"
             spellCheck={false}
           />
-          <p className="mt-1.5 text-xs text-ink/60">
+          <p className="mt-1.5 text-xs text-ink-muted">
             الطالب يكتب الرقم التعريفي الذي سلّمه له الأستاذ، والأستاذ يكتب بريده الإلكتروني.
           </p>
         </div>
@@ -95,7 +97,7 @@ export default function LoginPage() {
         </div>
 
         {message && (
-          <p role="alert" className="rounded-xl border border-error bg-error/10 px-4 py-3 text-sm font-semibold text-ink">
+          <p role="alert" className="rounded-xl border border-error bg-error-soft px-4 py-3 text-sm font-semibold text-error">
             {message}
           </p>
         )}
@@ -104,6 +106,10 @@ export default function LoginPage() {
           {submitting ? 'جارٍ الدخول…' : 'دخول'}
         </Button>
       </form>
+
+      <p className="mt-8 text-xs text-ink-muted">
+        المطور: د. محمد إسماعيل — 2026
+      </p>
     </CenteredCard>
   )
 }
