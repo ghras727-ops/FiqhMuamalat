@@ -17,26 +17,35 @@ interface Material {
   position: number
 }
 
-async function buildUrl(kind: Kind, path: string, url: string | null): Promise<string | null> {
-  if (kind === 'link' && url) return url
-  if (!supabase) return null
-  const { data, error } = await supabase.storage.from('course-files').createSignedUrl(path, 86400)
-  if (error || !data) return null
-  const ext = (path.split('.').pop() ?? '').toLowerCase()
-  const officeExts = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'ods', 'odp']
-  if (officeExts.includes(ext)) {
-    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(data.signedUrl)}`
-  }
-  return data.signedUrl
+interface ViewState {
+  material: Material
+  url: string          // URL للعرض المدمج
+  downloadUrl: string  // URL للتحميل
+}
+
+const BUCKET = 'course-files'
+
+function extFromPath(path: string): string {
+  const i = path.lastIndexOf('.')
+  return i > 0 ? path.slice(i + 1).toLowerCase() : ''
+}
+
+function isOffice(ext: string): boolean {
+  return ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'ods', 'odp'].includes(ext)
+}
+function isImage(ext: string): boolean {
+  return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)
 }
 
 export default function WeekPacksView() {
   const [weeks, setWeeks] = useState<Week[]>([])
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
-  const [signed, setSigned] = useState<Record<string, string | null>>({})
+  const [viewUrls, setViewUrls] = useState<Record<string, string | null>>({})
+  const [downloadUrls, setDownloadUrls] = useState<Record<string, string | null>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<ViewState | null>(null)
 
   useEffect(() => {
     if (!supabase) return
@@ -57,19 +66,48 @@ export default function WeekPacksView() {
       setLessons((l.data ?? []) as Lesson[])
       const mats = (m.data ?? []) as Material[]
       setMaterials(mats)
-      const next: Record<string, string | null> = {}
+
+      const nextView: Record<string, string | null> = {}
+      const nextDownload: Record<string, string | null> = {}
+
       for (const mat of mats) {
-        if (mat.kind === 'link') continue
+        if (mat.kind === 'link') {
+          nextView[mat.id] = mat.url
+          nextDownload[mat.id] = null
+          continue
+        }
         const path = mat.view_path ?? mat.download_path
-        if (!path) { next[mat.id] = null; continue }
-        next[mat.id] = await buildUrl(mat.kind, path, null)
+        if (!path) {
+          nextView[mat.id] = null
+          nextDownload[mat.id] = null
+          continue
+        }
+
+        const { data: viewData } = await supabase.storage
+          .from(BUCKET)
+          .createSignedUrl(path, 86400)
+        nextView[mat.id] = viewData?.signedUrl ?? null
+
+        const { data: dlData } = await supabase.storage
+          .from(BUCKET)
+          .createSignedUrl(path, 86400, { download: true })
+        nextDownload[mat.id] = dlData?.signedUrl ?? null
       }
+
       if (cancelled) return
-      setSigned(next)
+      setViewUrls(nextView)
+      setDownloadUrls(nextDownload)
       setLoading(false)
     })()
     return () => { cancelled = true }
   }, [])
+
+  function openViewer(m: Material) {
+    const view = viewUrls[m.id]
+    if (!view) return
+    const dl = downloadUrls[m.id] ?? view
+    setViewing({ material: m, url: view, downloadUrl: dl })
+  }
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
   if (error) return <section className={card}><p className="text-sm font-semibold text-error">{error}</p></section>
@@ -78,6 +116,7 @@ export default function WeekPacksView() {
   return (
     <div className="space-y-5">
       <h2 className="text-2xl font-bold text-primary">📚 دروس الأسابيع</h2>
+
       {weeks.map((w) => {
         const wLessons = lessons.filter((l) => l.week_id === w.id)
         return (
@@ -91,21 +130,38 @@ export default function WeekPacksView() {
                   key={l.id}
                   lesson={l}
                   materials={materials.filter((m) => m.lesson_id === l.id)}
-                  signed={signed}
+                  viewUrls={viewUrls}
+                  downloadUrls={downloadUrls}
+                  onOpen={openViewer}
                 />
               ))}
             </div>
           </section>
         )
       })}
+
+      {/* نافذة العرض المدمج */}
+      {viewing && (
+        <FileViewerModal
+          material={viewing.material}
+          url={viewing.url}
+          downloadUrl={viewing.downloadUrl}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   )
 }
 
-function LessonView({ lesson, materials, signed }: {
+/* ============================================================
+   قسم الدرس
+   ============================================================ */
+function LessonView({ lesson, materials, viewUrls, downloadUrls, onOpen }: {
   lesson: Lesson
   materials: Material[]
-  signed: Record<string, string | null>
+  viewUrls: Record<string, string | null>
+  downloadUrls: Record<string, string | null>
+  onOpen: (m: Material) => void
 }) {
   const [open, setOpen] = useState(true)
   const docs = materials.filter((m) => m.kind === 'document')
@@ -130,56 +186,182 @@ function LessonView({ lesson, materials, signed }: {
             </div>
           )}
 
-          {docs.length > 0 && <MaterialGroup title="📄 المادة الخام" items={docs} signed={signed} />}
-          {slides.length > 0 && <MaterialGroup title="📊 العرض التقديمي" items={slides} signed={signed} />}
-          {links.length > 0 && <MaterialGroup title="🔗 روابط خارجية" items={links} signed={signed} />}
+          {docs.length > 0 && (
+            <MaterialGroup title="📄 المادة الخام" items={docs} viewUrls={viewUrls} downloadUrls={downloadUrls} onOpen={onOpen} />
+          )}
+          {slides.length > 0 && (
+            <MaterialGroup title="📊 العرض التقديمي" items={slides} viewUrls={viewUrls} downloadUrls={downloadUrls} onOpen={onOpen} />
+          )}
+          {links.length > 0 && (
+            <MaterialGroup title="🔗 روابط خارجية" items={links} viewUrls={viewUrls} downloadUrls={downloadUrls} onOpen={onOpen} />
+          )}
         </div>
       )}
     </section>
   )
 }
 
-function MaterialGroup({ title, items, signed }: {
+/* ============================================================
+   مجموعة مواد
+   ============================================================ */
+function MaterialGroup({ title, items, viewUrls, downloadUrls, onOpen }: {
   title: string
   items: Material[]
-  signed: Record<string, string | null>
+  viewUrls: Record<string, string | null>
+  downloadUrls: Record<string, string | null>
+  onOpen: (m: Material) => void
 }) {
   return (
     <div className="rounded-xl border border-light-blue bg-white p-4">
       <h5 className="mb-3 text-base font-bold text-primary">{title}</h5>
       <ul className="space-y-2">
         {items.map((m) => {
-          const href = m.kind === 'link' ? m.url ?? '#' : signed[m.id] ?? null
-          const disabled = !href
+          const view = viewUrls[m.id]
+          const dl = downloadUrls[m.id]
+          const canView = !!view
+          const isLink = m.kind === 'link'
           return (
-            <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-light-blue p-3">
+            <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-light-blue p-3 transition hover:border-primary/40 hover:shadow-sm">
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-ink">
                   {m.kind === 'link' && '🔗 '}{m.kind === 'slides' && '📊 '}{m.kind === 'document' && '📄 '}
                   {m.title}
                 </div>
-                {m.kind === 'link' && m.url && (
+                {isLink && m.url && (
                   <div className="mt-1 break-all text-xs text-ink-muted" dir="ltr">{m.url}</div>
                 )}
               </div>
-              <a
-                className={
-                  'rounded-xl border px-4 py-2 text-sm font-semibold transition ' +
-                  (disabled
-                    ? 'cursor-not-allowed border-ink/20 text-ink/40'
-                    : 'border-primary bg-white text-primary hover:bg-primary-soft')
-                }
-                href={href ?? '#'}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => { if (disabled) e.preventDefault() }}
-              >
-                {m.kind === 'link' ? 'فتح الرابط ↗' : 'فتح الملف'}
-              </a>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!canView}
+                  onClick={() => isLink && view
+                    ? window.open(view, '_blank', 'noreferrer')
+                    : onOpen(m)}
+                  className={
+                    'inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition ' +
+                    (canView
+                      ? 'border-primary bg-white text-primary hover:bg-primary-soft'
+                      : 'cursor-not-allowed border-ink/20 text-ink/40')
+                  }
+                >
+                  {isLink ? '🔗 فتح الرابط ↗' : '📖 عرض'}
+                </button>
+
+                {!isLink && dl && (
+                  <a
+                    href={dl}
+                    download
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text-white transition hover:bg-secondary-hover"
+                  >
+                    ⬇ تحميل
+                  </a>
+                )}
+              </div>
             </li>
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+/* ============================================================
+   نافذة العرض المدمج
+   ============================================================ */
+function FileViewerModal({ material, url, downloadUrl, onClose }: {
+  material: Material
+  url: string
+  downloadUrl: string
+  onClose: () => void
+}) {
+  const path = material.view_path ?? material.download_path ?? ''
+  const ext = extFromPath(path)
+  const office = isOffice(ext)
+  const image = isImage(ext)
+  const pdf = ext === 'pdf'
+
+  // Office files: نستخدم Office Online Viewer
+  const officeViewerUrl = office
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`
+    : url
+
+  // إغلاق بـ Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 md:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* الرأس */}
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-light-blue bg-gradient-to-l from-primary-soft/40 to-white px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-2xl">
+              {material.kind === 'slides' ? '📊' : material.kind === 'document' ? '📄' : '🔗'}
+            </span>
+            <h3 className="truncate text-base font-bold text-primary md:text-lg">{material.title}</h3>
+            {office && <span className="rounded bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">Office Viewer</span>}
+            {pdf && <span className="rounded bg-error-soft px-2 py-0.5 text-xs font-semibold text-error">PDF</span>}
+            {image && <span className="rounded bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">صورة</span>}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={downloadUrl}
+              download
+              className="inline-flex items-center gap-1.5 rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text-white transition hover:bg-secondary-hover"
+            >
+              ⬇ تحميل
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-error bg-white px-4 py-2 text-sm font-semibold text-error transition hover:bg-error-soft"
+            >
+              ✕ إغلاق
+            </button>
+          </div>
+        </header>
+
+        {/* الجسم */}
+        <div className="flex-1 overflow-hidden bg-bg">
+          {image ? (
+            <div className="flex h-full items-center justify-center overflow-auto p-4">
+              <img src={url} alt={material.title} className="max-h-full max-w-full object-contain" />
+            </div>
+          ) : (
+            <iframe
+              src={officeViewerUrl}
+              title={material.title}
+              className="h-full w-full border-0"
+              allow="fullscreen"
+            />
+          )}
+        </div>
+
+        {/* التذييل */}
+        <footer className="border-t border-light-blue bg-white px-4 py-2 text-xs text-ink-muted">
+          {pdf && 'يُعرض الملف عبر قارئ PDF المدمج في المتصفح.'}
+          {office && 'يُعرض الملف عبر Microsoft Office Viewer.'}
+          {image && 'صورة معروضة بالحجم الكامل.'}
+        </footer>
+      </div>
     </div>
   )
 }
