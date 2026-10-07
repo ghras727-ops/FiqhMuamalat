@@ -12,7 +12,7 @@ import TablesTab from './TablesTab'
 import WeeksTab from './WeeksTab'
 
 const TABS: ShellTab[] = [
-  { key: 'home', label: 'الرئيسية' },
+  { key: 'home', label: 'الرئيسة' },
   { key: 'posts', label: 'المنشورات' },
   { key: 'students', label: 'الطلاب' },
   { key: 'weeks', label: 'الأسابيع والدروس' },
