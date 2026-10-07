@@ -25,6 +25,12 @@ interface Material {
   published: boolean
 }
 
+interface ViewState {
+  material: Material
+  url: string
+  downloadUrl: string
+}
+
 const BUCKET = 'course-files'
 
 function extOf(name: string): string {
@@ -32,25 +38,23 @@ function extOf(name: string): string {
   return i > 0 ? name.slice(i + 1).toLowerCase() : 'bin'
 }
 
+function extFromPath(path: string): string {
+  const i = path.lastIndexOf('.')
+  return i > 0 ? path.slice(i + 1).toLowerCase() : ''
+}
+
+function isOffice(ext: string): boolean {
+  return ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'ods', 'odp'].includes(ext)
+}
+function isImage(ext: string): boolean {
+  return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)
+}
+
 async function deleteStoragePaths(pathsJson: unknown): Promise<void> {
   if (!supabase) return
   const arr = Array.isArray(pathsJson) ? pathsJson as string[] : []
   if (arr.length === 0) return
   await supabase.storage.from(BUCKET).remove(arr)
-}
-
-// يفتح الملف في المتصفح — يستخدم Office Viewer للـOffice
-async function openFile(kind: Kind, path: string, url: string | null): Promise<string | null> {
-  if (kind === 'link' && url) return url
-  if (!supabase) return null
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 86400)
-  if (error || !data) return null
-  const ext = (path.split('.').pop() ?? '').toLowerCase()
-  const officeExts = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'ods', 'odp']
-  if (officeExts.includes(ext)) {
-    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(data.signedUrl)}`
-  }
-  return data.signedUrl
 }
 
 export default function WeeksTab() {
@@ -179,10 +183,7 @@ function WeekRow({ week, lessonCount, onEnter, onChanged }: {
     setBusy(true); setErr(null)
 
     const { data, error } = await supabase.rpc('delete_week_cascade', { p_week_id: week.id })
-    if (error) {
-      setErr('فشل الحذف: ' + error.message)
-      setBusy(false); return
-    }
+    if (error) { setErr('فشل الحذف: ' + error.message); setBusy(false); return }
     const paths = (data as { storage_paths?: unknown } | null)?.storage_paths
     await deleteStoragePaths(paths)
 
@@ -277,6 +278,7 @@ function WeekEditor({ week, lessons, materials, onChanged, onDeleted }: {
   const [success, setSuccess] = useState<string | null>(null)
   const [title, setTitle] = useState(week.title)
   const [summary, setSummary] = useState(week.summary ?? '')
+  const [viewing, setViewing] = useState<ViewState | null>(null)
 
   useEffect(() => setTitle(week.title), [week.title])
   useEffect(() => setSummary(week.summary ?? ''), [week.summary])
@@ -329,6 +331,26 @@ function WeekEditor({ week, lessons, materials, onChanged, onDeleted }: {
 
     setBusy(false)
     onDeleted()
+  }
+
+  async function openViewer(m: Material) {
+    if (!supabase) return
+    if (m.kind === 'link' && m.url) {
+      window.open(m.url, '_blank', 'noreferrer')
+      return
+    }
+    const path = m.view_path ?? m.download_path
+    if (!path) { setErr('لا يوجد مسار للملف.'); return }
+    setBusy(true); setErr(null)
+    const { data: viewData } = await supabase.storage.from(BUCKET).createSignedUrl(path, 86400)
+    const { data: dlData } = await supabase.storage.from(BUCKET).createSignedUrl(path, 86400, { download: true })
+    setBusy(false)
+    if (!viewData?.signedUrl) { setErr('تعذّر إنشاء رابط.'); return }
+    setViewing({
+      material: m,
+      url: viewData.signedUrl,
+      downloadUrl: dlData?.signedUrl ?? viewData.signedUrl,
+    })
   }
 
   return (
@@ -394,19 +416,30 @@ function WeekEditor({ week, lessons, materials, onChanged, onDeleted }: {
                 lesson={l}
                 materials={materials.filter((m) => m.lesson_id === l.id)}
                 onChanged={onChanged}
+                onOpenViewer={openViewer}
               />
             ))}
           </div>
         )}
       </section>
+
+      {viewing && (
+        <FileViewerModal
+          material={viewing.material}
+          url={viewing.url}
+          downloadUrl={viewing.downloadUrl}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   )
 }
 
-function LessonBlock({ lesson, materials, onChanged }: {
+function LessonBlock({ lesson, materials, onChanged, onOpenViewer }: {
   lesson: Lesson
   materials: Material[]
   onChanged: () => void
+  onOpenViewer: (m: Material) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -498,18 +531,18 @@ function LessonBlock({ lesson, materials, onChanged }: {
 
           <MaterialSection
             lessonId={lesson.id} weekId={lesson.week_id} kind="document"
-            title="📄 المادة الخام" subtitle="أي صيغة ملف — PDF, Word, PowerPoint, صور، فيديو..."
-            items={docs} onChanged={onChanged}
+            title="📄 المادة الخام" subtitle="أي صيغة ملف"
+            items={docs} onChanged={onChanged} onOpenViewer={onOpenViewer}
           />
           <MaterialSection
             lessonId={lesson.id} weekId={lesson.week_id} kind="slides"
-            title="📊 العرض التقديمي" subtitle="PowerPoint, PDF, أي صيغة"
-            items={slides} onChanged={onChanged}
+            title="📊 العرض التقديمي" subtitle="PowerPoint أو PDF"
+            items={slides} onChanged={onChanged} onOpenViewer={onOpenViewer}
           />
           <MaterialSection
             lessonId={lesson.id} weekId={lesson.week_id} kind="link"
             title="🔗 روابط خارجية" subtitle="فيديوهات، مصادر، شروح"
-            items={links} onChanged={onChanged}
+            items={links} onChanged={onChanged} onOpenViewer={onOpenViewer}
           />
         </div>
       )}
@@ -518,10 +551,10 @@ function LessonBlock({ lesson, materials, onChanged }: {
 }
 
 function MaterialSection({
-  lessonId, weekId, kind, title, subtitle, items, onChanged,
+  lessonId, weekId, kind, title, subtitle, items, onChanged, onOpenViewer,
 }: {
   lessonId: string; weekId: string; kind: Kind; title: string; subtitle: string
-  items: Material[]; onChanged: () => void
+  items: Material[]; onChanged: () => void; onOpenViewer: (m: Material) => void
 }) {
   const [showAdd, setShowAdd] = useState(false)
 
@@ -540,7 +573,7 @@ function MaterialSection({
       {items.length > 0 && (
         <ul className="mt-3 space-y-2">
           {items.map((m) => (
-            <MaterialItem key={m.id} material={m} onChanged={onChanged} />
+            <MaterialItem key={m.id} material={m} onChanged={onChanged} onOpenViewer={onOpenViewer} />
           ))}
         </ul>
       )}
@@ -558,7 +591,11 @@ function MaterialSection({
   )
 }
 
-function MaterialItem({ material, onChanged }: { material: Material; onChanged: () => void }) {
+function MaterialItem({ material, onChanged, onOpenViewer }: {
+  material: Material
+  onChanged: () => void
+  onOpenViewer: (m: Material) => void
+}) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -584,26 +621,18 @@ function MaterialItem({ material, onChanged }: { material: Material; onChanged: 
     onChanged()
   }
 
-  async function open() {
+  async function download() {
     if (!supabase) return
-    setBusy(true); setErr(null)
     const path = material.view_path ?? material.download_path
-    if (material.kind === 'link') {
-      const url = await openFile('link', '', material.url)
-      setBusy(false)
-      if (url) window.open(url, '_blank', 'noreferrer')
-      else setErr('تعذّر فتح الرابط.')
-      return
-    }
-    if (!path) { setErr('لا يوجد مسار للملف.'); setBusy(false); return }
-    const url = await openFile(material.kind, path, null)
+    if (!path) return
+    setBusy(true)
+    const { data } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600, { download: true })
     setBusy(false)
-    if (url) window.open(url, '_blank', 'noreferrer')
-    else setErr('تعذّر إنشاء رابط.')
+    if (data?.signedUrl) window.location.href = data.signedUrl
   }
 
   return (
-    <li className="rounded-lg border border-light-blue bg-white p-3">
+    <li className="rounded-lg border border-light-blue bg-white p-3 transition hover:border-primary/40 hover:shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-1 items-center gap-2 min-w-0">
           <span className="text-lg text-primary">
@@ -620,7 +649,14 @@ function MaterialItem({ material, onChanged }: { material: Material; onChanged: 
           </span>
         </div>
         <div className="flex flex-wrap gap-1">
-          <button className={btnOutline} onClick={open} disabled={busy}>فتح</button>
+          <button className={btnOutline} onClick={() => onOpenViewer(material)} disabled={busy}>
+            📖 عرض
+          </button>
+          {material.kind !== 'link' && (
+            <button className={btnOutline} onClick={download} disabled={busy}>
+              ⬇ تحميل
+            </button>
+          )}
           <button className={btnOutline} onClick={togglePublish} disabled={busy}>
             {material.published ? 'إخفاء' : 'نشر'}
           </button>
@@ -629,6 +665,77 @@ function MaterialItem({ material, onChanged }: { material: Material; onChanged: 
       </div>
       {err && <p className="mt-2 text-xs font-semibold text-error">{err}</p>}
     </li>
+  )
+}
+
+function FileViewerModal({ material, url, downloadUrl, onClose }: {
+  material: Material
+  url: string
+  downloadUrl: string
+  onClose: () => void
+}) {
+  const path = material.view_path ?? material.download_path ?? ''
+  const ext = extFromPath(path)
+  const office = isOffice(ext)
+  const image = isImage(ext)
+  const pdf = ext === 'pdf'
+
+  const officeViewerUrl = office
+    ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`
+    : url
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 md:p-6" onClick={onClose}>
+      <div className="flex h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-light-blue bg-gradient-to-l from-primary-soft/40 to-white px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-2xl">
+              {material.kind === 'slides' ? '📊' : material.kind === 'document' ? '📄' : '🔗'}
+            </span>
+            <h3 className="truncate text-base font-bold text-primary md:text-lg">{material.title}</h3>
+            {office && <span className="rounded bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">Office</span>}
+            {pdf && <span className="rounded bg-error-soft px-2 py-0.5 text-xs font-semibold text-error">PDF</span>}
+            {image && <span className="rounded bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">صورة</span>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <a href={downloadUrl} download className="inline-flex items-center gap-1.5 rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary-hover">
+              ⬇ تحميل
+            </a>
+            <button type="button" onClick={onClose} className="inline-flex items-center gap-1.5 rounded-xl border border-error bg-white px-4 py-2 text-sm font-semibold text-error hover:bg-error-soft">
+              ✕ إغلاق
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-hidden bg-bg">
+          {image ? (
+            <div className="flex h-full items-center justify-center overflow-auto p-4">
+              <img src={url} alt={material.title} className="max-h-full max-w-full object-contain" />
+            </div>
+          ) : (
+            <iframe src={officeViewerUrl} title={material.title} className="h-full w-full border-0" allow="fullscreen" />
+          )}
+        </div>
+
+        <footer className="border-t border-light-blue bg-white px-4 py-2 text-xs text-ink-muted">
+          {pdf && 'يُعرض الملف عبر قارئ PDF المدمج.'}
+          {office && 'يُعرض الملف عبر Microsoft Office Viewer.'}
+          {image && 'صورة معروضة بالحجم الكامل.'}
+        </footer>
+      </div>
+    </div>
   )
 }
 
@@ -674,13 +781,9 @@ function AddFileForm({ lessonId, weekId, kind, onAdded }: {
   return (
     <div className="space-y-3">
       <div>
-        <label className={label}>الملف (أي صيغة — أي حجم)</label>
+        <label className={label}>الملف (أي صيغة)</label>
         <input key={key} type="file" className={input} onChange={(e) => pick(e.target.files?.[0] ?? null)} />
-        {file && (
-          <p className="mt-1 text-xs text-ink-muted">
-            {file.name} — {(file.size / (1024 * 1024)).toFixed(2)} MB
-          </p>
-        )}
+        {file && <p className="mt-1 text-xs text-ink-muted">{file.name} — {(file.size / (1024 * 1024)).toFixed(2)} MB</p>}
       </div>
       <div>
         <label className={label}>العنوان</label>
