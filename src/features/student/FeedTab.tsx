@@ -113,7 +113,6 @@ function renderWithLinks(text: string): React.ReactNode[] {
   })
 }
 
-// لون ثابت لكل طالب (حسب أول حرف من الاسم) لتمييز أفاتارهم
 const AVATAR_COLORS = [
   'from-primary to-primary-hover',
   'from-secondary to-secondary-hover',
@@ -304,19 +303,17 @@ export default function FeedTab() {
   const classAvg = ranking.length === 0 ? 0 : Math.round(ranking.reduce((t, r) => t + r.percent, 0) / ranking.length)
   const top = ranking[0]
 
-  // بطاقات إحصائية بألوان مختلفة
-  const statCards: { icon: string; label: string; value: string; sub: string; tone: 'primary' | 'secondary' | 'accent' | 'warning' | 'error' | 'ink' }[] = [
-    { icon: '🥇', label: 'أفضل طالب', value: top?.full_name ?? '—', sub: top ? `${top.percent}%` : 'لا بيانات', tone: 'primary' },
-    { icon: '⭐', label: 'أفضل نشاط', value: best ? `${best.percent}%` : '—', sub: best?.student_name ?? '—', tone: 'secondary' },
-    { icon: '📊', label: 'متوسط الصف', value: `${classAvg}%`, sub: `${ranking.length} طالبًا`, tone: 'accent' },
-    { icon: '🎯', label: 'ترتيبك', value: meRank > 0 ? `#${meRank}` : '—', sub: meRow ? `${meRow.percent}%` : '—', tone: 'warning' },
-    { icon: '📚', label: 'المواد', value: String(stats.materials), sub: `${stats.lessons} درسًا`, tone: 'ink' },
-    { icon: '👥', label: 'المشاركون', value: String(stats.students), sub: `${stats.attempts} محاولة`, tone: 'error' },
+  const statCards: { label: string; value: string; sub: string; tone: 'primary' | 'secondary' | 'accent' | 'warning' | 'error' | 'ink' }[] = [
+    { label: 'أفضل طالب', value: top?.full_name ?? '—', sub: top ? `${top.percent}%` : 'لا بيانات', tone: 'primary' },
+    { label: 'أفضل نشاط', value: best ? `${best.percent}%` : '—', sub: best?.student_name ?? '—', tone: 'secondary' },
+    { label: 'متوسط الصف', value: `${classAvg}%`, sub: `${ranking.length} طالبًا`, tone: 'accent' },
+    { label: 'ترتيبك', value: meRank > 0 ? `#${meRank}` : '—', sub: meRow ? `${meRow.percent}%` : '—', tone: 'warning' },
+    { label: 'المواد', value: String(stats.materials), sub: `${stats.lessons} درسًا`, tone: 'ink' },
+    { label: 'المشاركون', value: String(stats.students), sub: `${stats.attempts} محاولة`, tone: 'error' },
   ]
 
   return (
     <div className="space-y-5">
-      {/* رأس المنصة */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -343,14 +340,13 @@ export default function FeedTab() {
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-sm font-semibold text-error">{error}</p>}
 
-      {/* البطاقات الإحصائية */}
+      {/* البطاقات الإحصائية — بدون أيقونات */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         {statCards.map((s) => (
           <StatCard key={s.label} {...s} />
         ))}
       </div>
 
-      {/* نموذج إضافة منشور */}
       {isTeacher && showAdd && (
         <AddPostForm
           materials={materials}
@@ -359,7 +355,6 @@ export default function FeedTab() {
         />
       )}
 
-      {/* المنشورات */}
       {posts.length === 0 ? (
         <section className={card}>
           <p className="text-ink-muted">لا منشورات بعد.</p>
@@ -393,41 +388,29 @@ export default function FeedTab() {
   )
 }
 
-/* ============================================================
-   بطاقة إحصائية بلمسة بصرية مميزة
-   ============================================================ */
-const TONE_STYLES: Record<string, { bar: string; bg: string; icon: string; text: string; sub: string }> = {
-  primary:   { bar: 'border-s-primary',   bg: 'from-primary-soft/60 to-white',   icon: 'bg-primary-soft',    text: 'text-primary',   sub: 'text-ink-muted' },
-  secondary: { bar: 'border-s-secondary', bg: 'from-secondary-soft/60 to-white', icon: 'bg-secondary-soft',  text: 'text-secondary', sub: 'text-ink-muted' },
-  accent:    { bar: 'border-s-accent',    bg: 'from-accent-soft/60 to-white',    icon: 'bg-accent-soft/40',  text: 'text-primary',   sub: 'text-ink-muted' },
-  warning:   { bar: 'border-s-warning',   bg: 'from-warning-soft/70 to-white',   icon: 'bg-warning-soft',    text: 'text-ink',       sub: 'text-ink-muted' },
-  error:     { bar: 'border-s-error',     bg: 'from-error-soft/60 to-white',     icon: 'bg-error-soft',      text: 'text-error',     sub: 'text-ink-muted' },
-  ink:       { bar: 'border-s-ink',       bg: 'from-ink/5 to-white',             icon: 'bg-ink/5',           text: 'text-ink',       sub: 'text-ink-muted' },
+/* البطاقات الإحصائية — بدون أيقونات */
+const TONE_STYLES: Record<string, { bar: string; bg: string; text: string; sub: string }> = {
+  primary:   { bar: 'border-s-primary',   bg: 'from-primary-soft/60 to-white',   text: 'text-primary',   sub: 'text-ink-muted' },
+  secondary: { bar: 'border-s-secondary', bg: 'from-secondary-soft/60 to-white', text: 'text-secondary', sub: 'text-ink-muted' },
+  accent:    { bar: 'border-s-accent',    bg: 'from-accent-soft/60 to-white',    text: 'text-primary',   sub: 'text-ink-muted' },
+  warning:   { bar: 'border-s-warning',   bg: 'from-warning-soft/70 to-white',   text: 'text-ink',       sub: 'text-ink-muted' },
+  error:     { bar: 'border-s-error',     bg: 'from-error-soft/60 to-white',     text: 'text-error',     sub: 'text-ink-muted' },
+  ink:       { bar: 'border-s-ink',       bg: 'from-ink/5 to-white',             text: 'text-ink',       sub: 'text-ink-muted' },
 }
 
-function StatCard({ icon, label, value, sub, tone }: {
-  icon: string; label: string; value: string; sub: string; tone: string
+function StatCard({ label, value, sub, tone }: {
+  label: string; value: string; sub: string; tone: string
 }) {
   const st = TONE_STYLES[tone] ?? TONE_STYLES.primary
   return (
     <div className={`relative overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-gradient-to-b ${st.bg} p-4 shadow-sm transition hover:shadow-md ${st.bar}`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold text-ink-muted">{label}</div>
-          <div className={`mt-1.5 truncate text-xl font-bold ${st.text}`}>{value}</div>
-          <div className={`mt-0.5 truncate text-xs ${st.sub}`}>{sub}</div>
-        </div>
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base ${st.icon}`}>
-          {icon}
-        </div>
-      </div>
+      <div className="text-xs font-semibold text-ink-muted">{label}</div>
+      <div className={`mt-1.5 truncate text-xl font-bold ${st.text}`}>{value}</div>
+      <div className={`mt-0.5 truncate text-xs ${st.sub}`}>{sub}</div>
     </div>
   )
 }
 
-/* ============================================================
-   بطاقة منشور بتصميم احترافي
-   ============================================================ */
 function PostCard({
   post, authorName, authorRole, attachmentUrl, comments, likes, me, isTeacher, profilesMap, currentProfile,
   linkedMaterial, onOpenMaterial, onLike, onComment, onDeleteComment, onPin, onHide, onDelete,
@@ -481,7 +464,6 @@ function PostCard({
 
   return (
     <section className={`relative overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-white shadow-sm transition hover:shadow-md ${post.pinned ? 'border-warning' : accentBar}`}>
-      {/* شريط التثبيت */}
       {post.pinned && (
         <div className="flex items-center justify-between bg-gradient-to-l from-warning-soft to-white px-5 py-2 text-sm font-semibold text-ink">
           <span>📌 منشور مثبّت</span>
@@ -489,7 +471,6 @@ function PostCard({
       )}
 
       <div className="p-5">
-        {/* الرأس */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br text-lg font-bold text-white shadow-sm ${avatarGradient(post.author_id)}`}>
@@ -518,7 +499,6 @@ function PostCard({
           </div>
         </div>
 
-        {/* إجراءات الأستاذ */}
         {isTeacher && (
           <div className="mt-3 flex flex-wrap gap-2">
             <button className={btnOutline + ' !py-1 !text-xs'} onClick={onPin}>
@@ -533,7 +513,6 @@ function PostCard({
           </div>
         )}
 
-        {/* المحتوى */}
         {post.title && (
           <h3 className="mt-4 text-xl font-bold leading-8 text-primary">{post.title}</h3>
         )}
@@ -543,14 +522,12 @@ function PostCard({
           </p>
         )}
 
-        {/* الصورة */}
         {post.kind === 'image' && attachmentUrl && (
           <div className="mt-4 overflow-hidden rounded-xl border border-light-blue">
             <img src={attachmentUrl} alt={post.title ?? ''} className="max-h-96 w-full object-contain" />
           </div>
         )}
 
-        {/* الملف */}
         {post.kind === 'file' && attachmentUrl && (
           <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border-2 border-primary/30 bg-gradient-to-l from-primary-soft to-white p-3 transition hover:border-primary hover:shadow-md" href={attachmentUrl} target="_blank" rel="noreferrer">
             <div className="flex items-center gap-3">
@@ -561,7 +538,6 @@ function PostCard({
           </a>
         )}
 
-        {/* رابط/فيديو */}
         {(post.kind === 'link' || post.kind === 'video') && post.external_url && (
           <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border-2 border-accent/40 bg-gradient-to-l from-accent-soft/40 to-white p-3 transition hover:border-accent hover:shadow-md" href={post.external_url} target="_blank" rel="noreferrer">
             <div className="flex items-center gap-3 min-w-0">
@@ -579,7 +555,6 @@ function PostCard({
           </a>
         )}
 
-        {/* مادة مرتبطة */}
         {linkedMaterial && (
           <div className="mt-4 rounded-xl border-2 border-secondary bg-gradient-to-l from-secondary-soft to-white p-3 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -604,7 +579,6 @@ function PostCard({
           </div>
         )}
 
-        {/* شريط التفاعل */}
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-light-blue/50 pt-3">
           <button
             className={
@@ -685,9 +659,6 @@ function PostCard({
   )
 }
 
-/* ============================================================
-   نموذج إضافة منشور
-   ============================================================ */
 function AddPostForm({ materials, onCreated, onCancel }: {
   materials: MaterialWithCtx[]
   onCreated: () => void
