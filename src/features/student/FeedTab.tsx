@@ -75,6 +75,14 @@ const KIND_EMOJI: Record<PostKind, string> = {
   announcement: '📢', post: '📝', image: '🖼️',
   file: '📎', video: '🎥', link: '🔗',
 }
+const KIND_STYLE: Record<PostKind, string> = {
+  announcement: 'bg-accent-soft/60 text-primary border-accent/40',
+  post:         'bg-primary-soft text-primary border-primary/20',
+  image:        'bg-secondary-soft text-secondary border-secondary/20',
+  file:         'bg-warning-soft text-ink border-warning',
+  video:        'bg-error-soft text-error border-error/30',
+  link:         'bg-ink/5 text-ink border-ink/20',
+}
 
 function extOf(name: string): string {
   const i = name.lastIndexOf('.')
@@ -103,6 +111,21 @@ function renderWithLinks(text: string): React.ReactNode[] {
     }
     return <span key={i}>{part}</span>
   })
+}
+
+// لون ثابت لكل طالب (حسب أول حرف من الاسم) لتمييز أفاتارهم
+const AVATAR_COLORS = [
+  'from-primary to-primary-hover',
+  'from-secondary to-secondary-hover',
+  'from-accent to-primary',
+  'from-warning to-secondary',
+  'from-error to-warning',
+  'from-primary to-accent',
+]
+function avatarGradient(id: string): string {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i)) % AVATAR_COLORS.length
+  return AVATAR_COLORS[h]
 }
 
 export default function FeedTab() {
@@ -154,11 +177,9 @@ export default function FeedTab() {
     const commentsList = (cRes.data ?? []) as CommentRow[]
     const likesList = (lRes.data ?? []) as { post_id: string; student_id: string }[]
 
-    // خريطة الأسماء
     const profMap: Record<string, ProfileLite> = {}
     for (const p of (stRes.data ?? []) as ProfileLite[]) profMap[p.id] = p
 
-    // signed urls لمرفقات المنشورات
     const signed: Record<string, string> = {}
     for (const p of postsList) {
       if (p.attachment_path) {
@@ -167,7 +188,6 @@ export default function FeedTab() {
       }
     }
 
-    // المواد (لخيار الربط)
     const rawMaterials = (msRes.data ?? []) as MaterialRow[]
     const weekMap: Record<string, number> = {}
     for (const w of (wkRes.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
@@ -284,8 +304,19 @@ export default function FeedTab() {
   const classAvg = ranking.length === 0 ? 0 : Math.round(ranking.reduce((t, r) => t + r.percent, 0) / ranking.length)
   const top = ranking[0]
 
+  // بطاقات إحصائية بألوان مختلفة
+  const statCards: { icon: string; label: string; value: string; sub: string; tone: 'primary' | 'secondary' | 'accent' | 'warning' | 'error' | 'ink' }[] = [
+    { icon: '🥇', label: 'أفضل طالب', value: top?.full_name ?? '—', sub: top ? `${top.percent}%` : 'لا بيانات', tone: 'primary' },
+    { icon: '⭐', label: 'أفضل نشاط', value: best ? `${best.percent}%` : '—', sub: best?.student_name ?? '—', tone: 'secondary' },
+    { icon: '📊', label: 'متوسط الصف', value: `${classAvg}%`, sub: `${ranking.length} طالبًا`, tone: 'accent' },
+    { icon: '🎯', label: 'ترتيبك', value: meRank > 0 ? `#${meRank}` : '—', sub: meRow ? `${meRow.percent}%` : '—', tone: 'warning' },
+    { icon: '📚', label: 'المواد', value: String(stats.materials), sub: `${stats.lessons} درسًا`, tone: 'ink' },
+    { icon: '👥', label: 'المشاركون', value: String(stats.students), sub: `${stats.attempts} محاولة`, tone: 'error' },
+  ]
+
   return (
     <div className="space-y-5">
+      {/* رأس المنصة */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -312,15 +343,14 @@ export default function FeedTab() {
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-sm font-semibold text-error">{error}</p>}
 
+      {/* البطاقات الإحصائية */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="أفضل طالب" value={top?.full_name ?? '—'} sub={top ? `${top.percent}%` : 'لا بيانات'} />
-        <StatCard label="أفضل نشاط" value={best ? `${best.percent}%` : '—'} sub={best?.student_name ?? '—'} />
-        <StatCard label="متوسط الصف" value={`${classAvg}%`} sub={`${ranking.length} طالبًا`} />
-        <StatCard label="ترتيبك" value={meRank > 0 ? `#${meRank}` : '—'} sub={meRow ? `${meRow.percent}%` : '—'} />
-        <StatCard label="المواد" value={String(stats.materials)} sub={`${stats.lessons} درسًا`} />
-        <StatCard label="المشاركون" value={String(stats.students)} sub={`${stats.attempts} محاولة`} />
+        {statCards.map((s) => (
+          <StatCard key={s.label} {...s} />
+        ))}
       </div>
 
+      {/* نموذج إضافة منشور */}
       {isTeacher && showAdd && (
         <AddPostForm
           materials={materials}
@@ -329,8 +359,11 @@ export default function FeedTab() {
         />
       )}
 
+      {/* المنشورات */}
       {posts.length === 0 ? (
-        <section className={card}><p className="text-ink-muted">لا منشورات بعد.</p></section>
+        <section className={card}>
+          <p className="text-ink-muted">لا منشورات بعد.</p>
+        </section>
       ) : (
         posts.map((p) => (
           <PostCard
@@ -360,16 +393,41 @@ export default function FeedTab() {
   )
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub: string }) {
+/* ============================================================
+   بطاقة إحصائية بلمسة بصرية مميزة
+   ============================================================ */
+const TONE_STYLES: Record<string, { bar: string; bg: string; icon: string; text: string; sub: string }> = {
+  primary:   { bar: 'border-s-primary',   bg: 'from-primary-soft/60 to-white',   icon: 'bg-primary-soft',    text: 'text-primary',   sub: 'text-ink-muted' },
+  secondary: { bar: 'border-s-secondary', bg: 'from-secondary-soft/60 to-white', icon: 'bg-secondary-soft',  text: 'text-secondary', sub: 'text-ink-muted' },
+  accent:    { bar: 'border-s-accent',    bg: 'from-accent-soft/60 to-white',    icon: 'bg-accent-soft/40',  text: 'text-primary',   sub: 'text-ink-muted' },
+  warning:   { bar: 'border-s-warning',   bg: 'from-warning-soft/70 to-white',   icon: 'bg-warning-soft',    text: 'text-ink',       sub: 'text-ink-muted' },
+  error:     { bar: 'border-s-error',     bg: 'from-error-soft/60 to-white',     icon: 'bg-error-soft',      text: 'text-error',     sub: 'text-ink-muted' },
+  ink:       { bar: 'border-s-ink',       bg: 'from-ink/5 to-white',             icon: 'bg-ink/5',           text: 'text-ink',       sub: 'text-ink-muted' },
+}
+
+function StatCard({ icon, label, value, sub, tone }: {
+  icon: string; label: string; value: string; sub: string; tone: string
+}) {
+  const st = TONE_STYLES[tone] ?? TONE_STYLES.primary
   return (
-    <div className="rounded-2xl border border-light-blue bg-white p-3 shadow-sm">
-      <div className="text-xs text-ink-muted">{label}</div>
-      <div className="mt-1 truncate text-lg font-bold text-primary">{value}</div>
-      <div className="mt-0.5 truncate text-xs text-ink-muted">{sub}</div>
+    <div className={`relative overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-gradient-to-b ${st.bg} p-4 shadow-sm transition hover:shadow-md ${st.bar}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-ink-muted">{label}</div>
+          <div className={`mt-1.5 truncate text-xl font-bold ${st.text}`}>{value}</div>
+          <div className={`mt-0.5 truncate text-xs ${st.sub}`}>{sub}</div>
+        </div>
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base ${st.icon}`}>
+          {icon}
+        </div>
+      </div>
     </div>
   )
 }
 
+/* ============================================================
+   بطاقة منشور بتصميم احترافي
+   ============================================================ */
 function PostCard({
   post, authorName, authorRole, attachmentUrl, comments, likes, me, isTeacher, profilesMap, currentProfile,
   linkedMaterial, onOpenMaterial, onLike, onComment, onDeleteComment, onPin, onHide, onDelete,
@@ -402,17 +460,15 @@ function PostCard({
     onComment(t); setDraft(''); setShowComments(true)
   }
 
-  // اسم المعلق مع مراعاة show_names
-  function commenterName(authorId: string): { text: string; isMe: boolean } {
-    const isMe = authorId === me
+  function commenterName(authorId: string): string {
     if (post.show_names || isTeacher) {
       const n = profilesMap[authorId]?.full_name
-        ?? (isMe ? currentProfile?.full_name : undefined)
+        ?? (authorId === me ? currentProfile?.full_name : undefined)
         ?? 'طالب'
-      return { text: n, isMe }
+      return n
     }
-    if (isMe) return { text: 'أنت', isMe: true }
-    return { text: 'طالب', isMe: false }
+    if (authorId === me) return 'أنت'
+    return 'طالب'
   }
 
   function commenterRole(authorId: string): 'teacher' | 'student' {
@@ -420,96 +476,126 @@ function PostCard({
     return profilesMap[authorId]?.role ?? 'student'
   }
 
-  const likesCount = likes.length
-  const likesText = likesCount === 0 ? 'إعجاب' : `إعجاب (${likesCount})`
+  const isTeacherAuthor = authorRole === 'teacher'
+  const accentBar = isTeacherAuthor ? 'border-s-secondary' : 'border-s-primary'
 
   return (
-    <section className={'rounded-2xl border bg-white shadow-sm ' + (post.pinned ? 'border-warning' : 'border-light-blue')}>
+    <section className={`relative overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-white shadow-sm transition hover:shadow-md ${post.pinned ? 'border-warning' : accentBar}`}>
+      {/* شريط التثبيت */}
       {post.pinned && (
-        <div className="rounded-t-2xl bg-warning-soft px-5 py-2 text-sm font-semibold text-ink">📌 منشور مثبّت</div>
+        <div className="flex items-center justify-between bg-gradient-to-l from-warning-soft to-white px-5 py-2 text-sm font-semibold text-ink">
+          <span>📌 منشور مثبّت</span>
+        </div>
       )}
+
       <div className="p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* الرأس */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-soft text-lg font-bold text-primary">
+            <div className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br text-lg font-bold text-white shadow-sm ${avatarGradient(post.author_id)}`}>
               {(authorName || '؟').charAt(0)}
             </div>
             <div>
-              <div className="font-semibold text-ink">
-                {authorName}
-                {authorRole === 'teacher' && (
-                  <span className="ms-2 rounded bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">أستاذ</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-base font-bold text-ink">{authorName}</span>
+                {isTeacherAuthor && (
+                  <span className="rounded-lg bg-gradient-to-l from-secondary to-secondary-hover px-2 py-0.5 text-[11px] font-bold text-white shadow-sm">
+                    ✓ أستاذ
+                  </span>
                 )}
               </div>
-              <div className="text-xs text-ink-muted">
+              <div className="mt-0.5 text-xs text-ink-muted">
                 {timeAgo(post.created_at)}
                 {post.updated_at && ' — عُدّل'}
               </div>
             </div>
           </div>
+
           <div className="flex items-center gap-2">
-            <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">
+            <span className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${KIND_STYLE[post.kind]}`}>
               {KIND_EMOJI[post.kind]} {KIND_LABEL[post.kind]}
             </span>
-            {isTeacher && (
-              <>
-                <button className={btnOutline} onClick={onPin}>{post.pinned ? 'إلغاء التثبيت' : 'تثبيت'}</button>
-                <button className={btnOutline} onClick={onHide}>{post.hidden ? 'إظهار' : 'إخفاء'}</button>
-                <button className={btnDanger} onClick={onDelete}>حذف</button>
-              </>
-            )}
           </div>
         </div>
 
-        {post.title && <h3 className="mt-4 text-xl font-bold text-primary">{post.title}</h3>}
+        {/* إجراءات الأستاذ */}
+        {isTeacher && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button className={btnOutline + ' !py-1 !text-xs'} onClick={onPin}>
+              {post.pinned ? '📌 إلغاء التثبيت' : '📌 تثبيت'}
+            </button>
+            <button className={btnOutline + ' !py-1 !text-xs'} onClick={onHide}>
+              {post.hidden ? '👁️ إظهار' : '🙈 إخفاء'}
+            </button>
+            <button className={btnDanger + ' !py-1 !text-xs'} onClick={onDelete}>
+              🗑️ حذف
+            </button>
+          </div>
+        )}
+
+        {/* المحتوى */}
+        {post.title && (
+          <h3 className="mt-4 text-xl font-bold leading-8 text-primary">{post.title}</h3>
+        )}
         {post.body && (
-          <p className="mt-2 whitespace-pre-wrap break-words text-base leading-8 text-ink">
+          <p className="mt-2 whitespace-pre-wrap break-words text-[15px] leading-8 text-ink">
             {renderWithLinks(post.body)}
           </p>
         )}
 
+        {/* الصورة */}
         {post.kind === 'image' && attachmentUrl && (
           <div className="mt-4 overflow-hidden rounded-xl border border-light-blue">
             <img src={attachmentUrl} alt={post.title ?? ''} className="max-h-96 w-full object-contain" />
           </div>
         )}
+
+        {/* الملف */}
         {post.kind === 'file' && attachmentUrl && (
-          <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-light-blue bg-bg p-3 hover:bg-primary-soft" href={attachmentUrl} target="_blank" rel="noreferrer">
-            <span className="text-sm font-semibold text-ink">📎 {post.title ?? 'ملف مرفق'}</span>
-            <span className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white">فتح الملف</span>
+          <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border-2 border-primary/30 bg-gradient-to-l from-primary-soft to-white p-3 transition hover:border-primary hover:shadow-md" href={attachmentUrl} target="_blank" rel="noreferrer">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-lg text-white">📎</div>
+              <span className="text-sm font-semibold text-ink">{post.title ?? 'ملف مرفق'}</span>
+            </div>
+            <span className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white">تحميل</span>
           </a>
         )}
+
+        {/* رابط/فيديو */}
         {(post.kind === 'link' || post.kind === 'video') && post.external_url && (
-          <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-light-blue bg-bg p-3 hover:bg-primary-soft" href={post.external_url} target="_blank" rel="noreferrer">
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-ink">
-                {post.kind === 'video' ? '🎥 ' : '🔗 '}{post.title ?? 'رابط'}
+          <a className="mt-4 flex items-center justify-between gap-3 rounded-xl border-2 border-accent/40 bg-gradient-to-l from-accent-soft/40 to-white p-3 transition hover:border-accent hover:shadow-md" href={post.external_url} target="_blank" rel="noreferrer">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-lg text-white">
+                {post.kind === 'video' ? '🎥' : '🔗'}
               </div>
-              <div className="mt-1 truncate text-xs text-ink-muted" dir="ltr">{post.external_url}</div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-ink">{post.title ?? 'رابط'}</div>
+                <div className="truncate text-xs text-ink-muted" dir="ltr">{post.external_url}</div>
+              </div>
             </div>
-            <span className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white">
+            <span className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white">
               {post.kind === 'video' ? 'مشاهدة' : 'فتح'}
             </span>
           </a>
         )}
 
-        {/* مادة مرتبطة من المنهج */}
+        {/* مادة مرتبطة */}
         {linkedMaterial && (
-          <div className="mt-4 rounded-xl border-2 border-accent bg-accent-soft/30 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="mt-4 rounded-xl border-2 border-secondary bg-gradient-to-l from-secondary-soft to-white p-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-primary">📚 مادة من المنهج</div>
+                <div className="text-xs font-bold text-secondary">📚 مادة من المنهج</div>
                 <div className="mt-1 truncate text-sm font-semibold text-ink">
                   {linkedMaterial.kind === 'link' ? '🔗 ' : linkedMaterial.kind === 'slides' ? '📊 ' : '📄 '}
                   {linkedMaterial.title}
                 </div>
-                <div className="mt-1 text-xs text-ink-muted">
+                <div className="mt-0.5 text-xs text-ink-muted">
                   الأسبوع {linkedMaterial.week_number}
                   {linkedMaterial.lesson_title ? ` — ${linkedMaterial.lesson_title}` : ''}
                 </div>
               </div>
               <button
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover"
+                className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-secondary-hover"
                 onClick={() => onOpenMaterial(linkedMaterial)}
               >
                 فتح المادة
@@ -518,58 +604,66 @@ function PostCard({
           </div>
         )}
 
+        {/* شريط التفاعل */}
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-light-blue/50 pt-3">
           <button
             className={
-              'rounded-xl border px-4 py-1.5 text-sm font-semibold transition ' +
-              (liked ? 'border-error bg-error-soft text-error' : 'border-light-blue bg-white text-ink-muted hover:bg-primary-soft')
+              'inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-semibold transition ' +
+              (liked
+                ? 'border-error bg-error-soft text-error shadow-sm'
+                : 'border-light-blue bg-white text-ink-muted hover:border-error/40 hover:bg-error-soft/30 hover:text-error')
             }
             onClick={onLike}
           >
-            {liked ? '❤️' : '🤍'} {likesText}
+            <span>{liked ? '❤️' : '🤍'}</span>
+            <span>{likes.length === 0 ? 'إعجاب' : likes.length}</span>
           </button>
           {post.allow_comments && (
             <button
-              className="rounded-xl border border-light-blue bg-white px-4 py-1.5 text-sm font-semibold text-ink-muted hover:bg-primary-soft"
+              className="inline-flex items-center gap-1.5 rounded-full border border-light-blue bg-white px-3.5 py-1.5 text-sm font-semibold text-ink-muted transition hover:border-primary/40 hover:bg-primary-soft/30 hover:text-primary"
               onClick={() => setShowComments(!showComments)}
             >
-              💬 تعليقات ({comments.length})
+              <span>💬</span>
+              <span>{comments.length === 0 ? 'تعليق' : comments.length}</span>
             </button>
           )}
           {!post.show_names && !isTeacher && (
-            <span className="rounded-lg bg-bg px-3 py-1 text-xs text-ink-muted">👤 الأسماء مخفية</span>
+            <span className="rounded-full bg-bg px-3 py-1 text-xs text-ink-muted">👤 أسماء مخفية</span>
           )}
         </div>
 
         {!post.allow_comments && (
-          <p className="mt-3 rounded-lg bg-bg p-3 text-sm text-ink-muted">التعليقات معطّلة لهذا المنشور.</p>
+          <p className="mt-3 rounded-lg bg-bg p-3 text-sm text-ink-muted">🔒 التعليقات معطّلة لهذا المنشور.</p>
         )}
 
         {post.allow_comments && showComments && (
-          <div className="mt-4 space-y-3 border-t border-light-blue/50 pt-3">
+          <div className="mt-4 space-y-3 border-t border-light-blue/50 pt-4">
             {comments.map((c) => {
-              const { text: cName } = commenterName(c.author_id)
+              const cName = commenterName(c.author_id)
               const cRole = commenterRole(c.author_id)
               const canDelete = isTeacher || c.author_id === me
               return (
-                <div key={c.id} className="rounded-xl bg-bg p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-ink">{cName}</span>
-                        {cRole === 'teacher' && (
-                          <span className="rounded bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">أستاذ</span>
-                        )}
-                        <span className="text-xs text-ink-muted">{timeAgo(c.created_at)}</span>
-                      </div>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-7 text-ink">
-                        {renderWithLinks(c.text)}
-                      </p>
-                    </div>
-                    {canDelete && (
-                      <button className="text-xs text-error hover:underline" onClick={() => onDeleteComment(c.id)}>حذف</button>
-                    )}
+                <div key={c.id} className="flex items-start gap-3 rounded-xl bg-bg p-3">
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-xs font-bold text-white shadow-sm ${avatarGradient(c.author_id)}`}>
+                    {(cName || '؟').charAt(0)}
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-ink">{cName}</span>
+                      {cRole === 'teacher' && (
+                        <span className="rounded bg-gradient-to-l from-secondary to-secondary-hover px-1.5 py-0.5 text-[10px] font-bold text-white">✓ أستاذ</span>
+                      )}
+                      <span className="text-xs text-ink-muted">{timeAgo(c.created_at)}</span>
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-7 text-ink">
+                      {renderWithLinks(c.text)}
+                    </p>
+                  </div>
+                  {canDelete && (
+                    <button className="shrink-0 text-xs text-error hover:underline" onClick={() => onDeleteComment(c.id)}>
+                      حذف
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -591,6 +685,9 @@ function PostCard({
   )
 }
 
+/* ============================================================
+   نموذج إضافة منشور
+   ============================================================ */
 function AddPostForm({ materials, onCreated, onCancel }: {
   materials: MaterialWithCtx[]
   onCreated: () => void
