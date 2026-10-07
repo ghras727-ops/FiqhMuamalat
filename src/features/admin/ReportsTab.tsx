@@ -38,12 +38,17 @@ interface GroupRow {
   attempts_count: number
   avg_score: number
   avg_percent: number
+  raw_percent: number
 }
 
 function barColor(p: number) {
   if (p < 50) return 'bg-error'
   if (p < 70) return 'bg-warning'
   return 'bg-secondary'
+}
+
+function pctSafe(value: number): number {
+  return Math.min(100, Math.max(0, Math.round(value)))
 }
 
 export default function ReportsTab() {
@@ -59,7 +64,6 @@ export default function ReportsTab() {
     setLoading(true)
     setError(null)
 
-    // 1) All students
     const stRes = await supabase
       .from('profiles')
       .select('id,full_name,student_no')
@@ -73,11 +77,8 @@ export default function ReportsTab() {
     }
     const stList = (stRes.data ?? []) as Student[]
     setStudents(stList)
-    if (stList.length > 0) {
-      setSelectedId((prev) => prev || stList[0].id)
-    }
+    if (stList.length > 0) setSelectedId((prev) => prev || stList[0].id)
 
-    // 2) All attempts
     const atRes = await supabase
       .from('attempts')
       .select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at')
@@ -90,7 +91,6 @@ export default function ReportsTab() {
     }
     const attempts = (atRes.data ?? []) as AttemptRaw[]
 
-    // 3) Activities + weeks
     const actIds = Array.from(new Set(attempts.map((a) => a.activity_id)))
     const actMap: Record<string, Activity> = {}
     const weekMap: Record<string, Week> = {}
@@ -104,7 +104,6 @@ export default function ReportsTab() {
       }
     }
 
-    // 4) Total possible per activity
     const totalByAct: Record<string, number> = {}
     if (actIds.length > 0) {
       const aqRes = await supabase
@@ -122,11 +121,9 @@ export default function ReportsTab() {
       }
     }
 
-    // 5) Per-student rows
     const byStudent: Record<string, AttemptRaw[]> = {}
-    for (const a of attempts) {
-      (byStudent[a.student_id] ??= []).push(a)
-    }
+    for (const a of attempts) (byStudent[a.student_id] ??= []).push(a)
+
     const rows: StudentRow[] = stList.map((s) => ({
       student: s,
       attempts: (byStudent[s.id] ?? []).map((at) => {
@@ -141,23 +138,22 @@ export default function ReportsTab() {
     }))
     setStudentRows(rows)
 
-    // 6) Group rows (per activity)
     const byActivity: Record<string, AttemptRaw[]> = {}
-    for (const a of attempts) {
-      (byActivity[a.activity_id] ??= []).push(a)
-    }
+    for (const a of attempts) (byActivity[a.activity_id] ??= []).push(a)
+
     const gRows: GroupRow[] = Object.entries(byActivity).map(([aid, list]) => {
       const act = actMap[aid] ?? { id: aid, title: '—', week_id: '' }
       const total = totalByAct[aid] ?? 0
       const avg = list.length === 0 ? 0 : list.reduce((t, r) => t + r.auto_score + (r.manual_score ?? 0), 0) / list.length
-      const pct = total === 0 ? 0 : Math.round((avg / total) * 100)
+      const rawPercent = total === 0 ? 0 : (avg / total) * 100
       return {
         activity: act,
         week_number: act.week_id ? (weekMap[act.week_id]?.number ?? 0) : 0,
         total_possible: total,
         attempts_count: list.length,
         avg_score: avg,
-        avg_percent: pct,
+        avg_percent: pctSafe(rawPercent),
+        raw_percent: Math.round(rawPercent),
       }
     }).sort((a, b) => a.week_number - b.week_number)
     setGroupRows(gRows)
@@ -180,7 +176,7 @@ export default function ReportsTab() {
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
 
-      {/* ============ تقرير فردي ============ */}
+      {/* تقرير فردي */}
       <section className={card}>
         <h3 className="text-xl font-bold text-primary">تقرير فردي</h3>
 
@@ -191,11 +187,7 @@ export default function ReportsTab() {
             <div className="mt-3 flex flex-wrap items-end gap-3">
               <div className="w-full max-w-sm">
                 <label className="text-sm font-semibold text-ink">الطالب</label>
-                <select
-                  className={input}
-                  value={selectedId}
-                  onChange={(e) => setSelectedId(e.target.value)}
-                >
+                <select className={input} value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
                   {students.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.full_name}{s.student_no ? ` (${s.student_no})` : ''}
@@ -213,13 +205,9 @@ export default function ReportsTab() {
             ) : (
               <>
                 <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-                  <span className="rounded-xl bg-primary-soft px-4 py-2 font-semibold text-primary">
-                    {selected.student.full_name}
-                  </span>
+                  <span className="rounded-xl bg-primary-soft px-4 py-2 font-semibold text-primary">{selected.student.full_name}</span>
                   {selected.student.student_no && (
-                    <span className="rounded-xl bg-bg px-4 py-2 font-mono text-ink-muted" dir="ltr">
-                      {selected.student.student_no}
-                    </span>
+                    <span className="rounded-xl bg-bg px-4 py-2 font-mono text-ink-muted" dir="ltr">{selected.student.student_no}</span>
                   )}
                   <span className="rounded-xl bg-secondary-soft px-4 py-2 font-semibold text-secondary">
                     {selected.attempts.length} محاولة
@@ -241,8 +229,11 @@ export default function ReportsTab() {
                     </thead>
                     <tbody>
                       {selected.attempts.map(({ attempt, activity, week_number, total_possible }) => {
-                        const total = attempt.auto_score + (attempt.manual_score ?? 0)
-                        const pct = total_possible === 0 ? 0 : Math.round((total / total_possible) * 100)
+                        const rawTotal = attempt.auto_score + (attempt.manual_score ?? 0)
+                        const cappedTotal = Math.min(rawTotal, total_possible)
+                        const overflow = rawTotal > total_possible
+                        const rawPct = total_possible === 0 ? 0 : Math.round((rawTotal / total_possible) * 100)
+                        const pct = pctSafe(rawPct)
                         return (
                           <tr key={attempt.id} className="border-b border-light-blue/50 hover:bg-bg">
                             <td className="p-3">الأسبوع {week_number}</td>
@@ -250,9 +241,13 @@ export default function ReportsTab() {
                             <td className="p-3 font-semibold text-primary">{attempt.auto_score}</td>
                             <td className="p-3">{attempt.manual_score ?? '—'}</td>
                             <td className="p-3 text-lg font-bold text-secondary" dir="ltr">
-                              {total.toFixed(1)} / {total_possible}
+                              {cappedTotal.toFixed(1)} / {total_possible}
                             </td>
-                            <td className="p-3 font-semibold">{pct}%</td>
+                            <td className="p-3 font-semibold">
+                              {overflow
+                                ? <span className="rounded-lg bg-error-soft px-2 py-0.5 text-error ring-1 ring-error/20">⚠ {rawPct}%</span>
+                                : `${pct}%`}
+                            </td>
                             <td className="p-3">
                               {attempt.status === 'graded'
                                 ? <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary ring-1 ring-secondary/20">مصحح</span>
@@ -272,7 +267,7 @@ export default function ReportsTab() {
         )}
       </section>
 
-      {/* ============ تقرير جماعي ============ */}
+      {/* تقرير جماعي */}
       <section className={card}>
         <h3 className="text-xl font-bold text-primary">تقرير جماعي — حسب النشاط</h3>
 
@@ -298,9 +293,13 @@ export default function ReportsTab() {
                     <td className="p-3 text-base font-semibold text-ink">{g.activity.title}</td>
                     <td className="p-3">{g.attempts_count}</td>
                     <td className="p-3" dir="ltr">
-                      {g.avg_score.toFixed(1)} / {g.total_possible}
+                      {Math.min(g.avg_score, g.total_possible).toFixed(1)} / {g.total_possible}
                     </td>
-                    <td className="p-3 font-semibold">{g.avg_percent}%</td>
+                    <td className="p-3 font-semibold">
+                      {g.raw_percent > 100
+                        ? <span className="rounded-lg bg-error-soft px-2 py-0.5 text-error ring-1 ring-error/20">⚠ {g.raw_percent}%</span>
+                        : `${g.avg_percent}%`}
+                    </td>
                     <td className="p-3 w-40">
                       <div className="h-3 overflow-hidden rounded-full bg-surface">
                         <div className={'h-full ' + barColor(g.avg_percent)} style={{ width: g.avg_percent + '%' }} />
