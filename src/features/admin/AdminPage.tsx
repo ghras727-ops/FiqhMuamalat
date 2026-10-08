@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import AppShell, { type ShellTab } from '../../components/AppShell'
-import ActivitiesTab from './ActivitiesTab'
 import GradesTab from './GradesTab'
 import HomeTab from './HomeTab'
 import MaterialsTab from './MaterialsTab'
@@ -18,7 +17,6 @@ const TABS: ShellTab[] = [
   { key: 'weeks', label: 'الأسابيع والدروس' },
   { key: 'materials', label: 'المواد' },
   { key: 'bank', label: 'بنك الأسئلة' },
-  { key: 'acts', label: 'الأنشطة' },
   { key: 'grades', label: 'الدرجات' },
   { key: 'reports', label: 'التقارير' },
   { key: 'db', label: 'الجداول' },
@@ -35,11 +33,9 @@ export default function AdminPage() {
       {tab === 'weeks' && <WeeksTab />}
       {tab === 'materials' && <MaterialsTab />}
       {tab === 'bank' && <QuizSetsTab />}
-      {tab === 'acts' && <ActivitiesTab />}
       {tab === 'grades' && <GradesTab />}
       {tab === 'reports' && <ReportsTab />}
       {tab === 'db' && <TablesTab />}
     </AppShell>
   )
 }
-
