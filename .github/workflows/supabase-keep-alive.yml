@@ -1,0 +1,34 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    - cron: '0 9 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        run: |
+          echo "Pinging Supabase to prevent auto-pause..."
+
+          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/auth/v1/health" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
+
+          echo "Health endpoint status: $HEALTH_CODE"
+
+          REST_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/profiles?select=id&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
+
+          echo "REST endpoint status: $REST_CODE"
+
+          if [ -n "$HEALTH_CODE" ] && [ "$HEALTH_CODE" != "000" ]; then
+            echo "✅ Supabase responded (activity recorded)"
+            exit 0
+          else
+            echo "❌ No response from Supabase"
+            exit 1
+          fi
