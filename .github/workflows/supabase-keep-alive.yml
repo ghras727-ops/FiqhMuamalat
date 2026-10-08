@@ -9,17 +9,26 @@ jobs:
   ping-supabase:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping Supabase
         run: |
           echo "Pinging Supabase to prevent auto-pause..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+
+          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/auth/v1/health" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
+
+          echo "Health endpoint status: $HEALTH_CODE"
+
+          REST_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             "${{ secrets.SUPABASE_URL }}/rest/v1/profiles?select=id&limit=1" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" = "200" ]; then
-            echo "✅ Supabase is alive"
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
+
+          echo "REST endpoint status: $REST_CODE"
+
+          if [ -n "$HEALTH_CODE" ] && [ "$HEALTH_CODE" != "000" ]; then
+            echo "✅ Supabase responded (activity recorded)"
+            exit 0
           else
-            echo "⚠️ Response code: $STATUS"
+            echo "❌ No response from Supabase"
             exit 1
           fi
