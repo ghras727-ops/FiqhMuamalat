@@ -19,8 +19,8 @@ interface Material {
 
 interface ViewState {
   material: Material
-  url: string          // URL للعرض المدمج
-  downloadUrl: string  // URL للتحميل
+  url: string
+  downloadUrl: string
 }
 
 const BUCKET = 'course-files'
@@ -46,6 +46,8 @@ export default function WeekPacksView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [viewing, setViewing] = useState<ViewState | null>(null)
+  // مفتاح الأسبوع المفتوح حاليًا — null يعني كلها مغلقة
+  const [openWeekId, setOpenWeekId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!supabase) return
@@ -83,14 +85,10 @@ export default function WeekPacksView() {
           continue
         }
 
-        const { data: viewData } = await supabase.storage
-          .from(BUCKET)
-          .createSignedUrl(path, 86400)
+        const { data: viewData } = await supabase.storage.from(BUCKET).createSignedUrl(path, 86400)
         nextView[mat.id] = viewData?.signedUrl ?? null
 
-        const { data: dlData } = await supabase.storage
-          .from(BUCKET)
-          .createSignedUrl(path, 86400, { download: true })
+        const { data: dlData } = await supabase.storage.from(BUCKET).createSignedUrl(path, 86400, { download: true })
         nextDownload[mat.id] = dlData?.signedUrl ?? null
       }
 
@@ -119,28 +117,69 @@ export default function WeekPacksView() {
 
       {weeks.map((w) => {
         const wLessons = lessons.filter((l) => l.week_id === w.id)
+        const isOpen = openWeekId === w.id
         return (
-          <section key={w.id} className={card}>
-            <h3 className="text-xl font-bold text-primary">الأسبوع {w.number}: {w.title}</h3>
-            {w.summary && <p className="mt-1 text-sm text-ink-muted">{w.summary}</p>}
+          <section key={w.id} className="overflow-hidden rounded-2xl border border-light-blue bg-white shadow-sm">
+            {/* رأس الأسبوع — قابل للنقر */}
+            <button
+              className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-start transition ${
+                isOpen
+                  ? 'bg-gradient-to-l from-primary to-primary-hover text-white'
+                  : 'bg-white hover:bg-primary-soft'
+              }`}
+              onClick={() => setOpenWeekId(isOpen ? null : w.id)}
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <span className={`text-2xl ${isOpen ? 'text-white' : 'text-primary'}`}>
+                  {isOpen ? '▼' : '▶'}
+                </span>
+                <span className={`text-lg font-bold ${isOpen ? 'text-white' : 'text-primary'}`}>
+                  الأسبوع {w.number}: {w.title}
+                </span>
+                <span className={`rounded-lg px-2 py-0.5 text-xs font-semibold ${
+                  isOpen ? 'bg-white/20 text-white' : 'bg-primary-soft text-primary'
+                }`}>
+                  {wLessons.length} درس
+                </span>
+              </div>
+              <span className={`text-sm ${isOpen ? 'text-white/80' : 'text-ink-muted'}`}>
+                {isOpen ? 'إغلاق' : 'عرض'}
+              </span>
+            </button>
 
-            <div className="mt-4 space-y-4">
-              {wLessons.map((l) => (
-                <LessonView
-                  key={l.id}
-                  lesson={l}
-                  materials={materials.filter((m) => m.lesson_id === l.id)}
-                  viewUrls={viewUrls}
-                  downloadUrls={downloadUrls}
-                  onOpen={openViewer}
-                />
-              ))}
-            </div>
+            {/* محتوى الأسبوع */}
+            {isOpen && (
+              <div className="border-t border-light-blue bg-bg p-4">
+                {w.summary && (
+                  <p className="mb-4 rounded-xl bg-white p-4 text-sm leading-7 text-ink-muted">
+                    {w.summary}
+                  </p>
+                )}
+
+                <div className="space-y-4">
+                  {wLessons.length === 0 ? (
+                    <p className="rounded-xl bg-white p-4 text-center text-sm text-ink-muted">
+                      لا دروس في هذا الأسبوع بعد.
+                    </p>
+                  ) : (
+                    wLessons.map((l) => (
+                      <LessonView
+                        key={l.id}
+                        lesson={l}
+                        materials={materials.filter((m) => m.lesson_id === l.id)}
+                        viewUrls={viewUrls}
+                        downloadUrls={downloadUrls}
+                        onOpen={openViewer}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </section>
         )
       })}
 
-      {/* نافذة العرض المدمج */}
       {viewing && (
         <FileViewerModal
           material={viewing.material}
@@ -154,7 +193,7 @@ export default function WeekPacksView() {
 }
 
 /* ============================================================
-   قسم الدرس
+   قسم الدرس — مطوي أيضًا
    ============================================================ */
 function LessonView({ lesson, materials, viewUrls, downloadUrls, onOpen }: {
   lesson: Lesson
@@ -163,19 +202,27 @@ function LessonView({ lesson, materials, viewUrls, downloadUrls, onOpen }: {
   downloadUrls: Record<string, string | null>
   onOpen: (m: Material) => void
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
+
   const docs = materials.filter((m) => m.kind === 'document')
   const slides = materials.filter((m) => m.kind === 'slides')
   const links = materials.filter((m) => m.kind === 'link')
+  const totalCount = docs.length + slides.length + links.length
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-light-blue border-s-4 border-s-primary bg-white">
+    <section className="overflow-hidden rounded-xl border border-light-blue bg-white">
       <button
-        className="flex w-full items-center justify-between gap-3 bg-white px-4 py-3 text-start hover:bg-primary-soft"
+        className="flex w-full items-center justify-between gap-3 bg-white px-4 py-3 text-start transition hover:bg-primary-soft"
         onClick={() => setOpen(!open)}
       >
-        <span className="text-lg font-bold text-primary">📖 {lesson.title}</span>
-        <span className="text-2xl text-primary">{open ? '▼' : '▶'}</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xl text-primary">{open ? '▼' : '▶'}</span>
+          <span className="text-base font-bold text-primary">📖 {lesson.title}</span>
+          <span className="rounded-lg bg-bg px-2 py-0.5 text-xs text-ink-muted">
+            {totalCount} مادة
+          </span>
+        </div>
+        <span className="text-sm text-ink-muted">{open ? 'إغلاق' : 'عرض'}</span>
       </button>
 
       {open && (
@@ -282,12 +329,10 @@ function FileViewerModal({ material, url, downloadUrl, onClose }: {
   const image = isImage(ext)
   const pdf = ext === 'pdf'
 
-  // Office files: نستخدم Office Online Viewer
   const officeViewerUrl = office
     ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`
     : url
 
-  // إغلاق بـ Escape
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -301,15 +346,8 @@ function FileViewerModal({ material, url, downloadUrl, onClose }: {
   }, [onClose])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 md:p-6"
-      onClick={onClose}
-    >
-      <div
-        className="flex h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* الرأس */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 md:p-6" onClick={onClose}>
+      <div className="flex h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-light-blue bg-gradient-to-l from-primary-soft/40 to-white px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-2xl">
@@ -339,7 +377,6 @@ function FileViewerModal({ material, url, downloadUrl, onClose }: {
           </div>
         </header>
 
-        {/* الجسم */}
         <div className="flex-1 overflow-hidden bg-bg">
           {image ? (
             <div className="flex h-full items-center justify-center overflow-auto p-4">
@@ -355,7 +392,6 @@ function FileViewerModal({ material, url, downloadUrl, onClose }: {
           )}
         </div>
 
-        {/* التذييل */}
         <footer className="border-t border-light-blue bg-white px-4 py-2 text-xs text-ink-muted">
           {pdf && 'يُعرض الملف عبر قارئ PDF المدمج في المتصفح.'}
           {office && 'يُعرض الملف عبر Microsoft Office Viewer.'}
