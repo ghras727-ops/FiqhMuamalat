@@ -16,6 +16,9 @@ const TABS: ShellTab[] = [
 ]
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
+const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
+const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
+const btnRefresh = 'rounded-xl bg-white px-4 py-2 text-sm font-semibold text-primary shadow-sm hover:bg-primary-soft disabled:opacity-60 ring-1 ring-white/40'
 const th = 'p-3 text-start text-ink-muted'
 
 interface ActivityRow {
@@ -31,7 +34,7 @@ interface AttemptRow {
   auto_score: number
   manual_score: number | null
   status: string
-  submitted_at: string
+  submitted_at: string | null
 }
 
 export default function StudentHomePage() {
@@ -41,11 +44,11 @@ export default function StudentHomePage() {
   const [activities, setActivities] = useState<ActivityRow[]>([])
   const [attempts, setAttempts] = useState<Record<string, AttemptRow>>({})
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!supabase) return
-    setLoading(true)
     setError(null)
 
     const [aRes, atRes] = await Promise.all([
@@ -55,7 +58,6 @@ export default function StudentHomePage() {
 
     if (aRes.error || atRes.error) {
       setError('تعذّر تحميل البيانات.')
-      setLoading(false)
       return
     }
 
@@ -92,12 +94,28 @@ export default function StudentHomePage() {
     const am: Record<string, AttemptRow> = {}
     for (const t of (atRes.data ?? []) as AttemptRow[]) am[t.activity_id] = t
     setAttempts(am)
-    setLoading(false)
   }, [])
 
-  useEffect(() => { void load() }, [load])
+  const initialLoad = useCallback(async () => {
+    setLoading(true)
+    await load()
+    setLoading(false)
+  }, [load])
 
-  const doneCount = activities.filter((a) => attempts[a.id]).length
+  const refresh = useCallback(async () => {
+    setRefreshing(true)
+    await load()
+    setRefreshing(false)
+  }, [load])
+
+  useEffect(() => { void initialLoad() }, [initialLoad])
+
+  const doneCount = activities.filter((a) => {
+    const at = attempts[a.id]
+    return at?.status === 'submitted' || at?.status === 'graded'
+  }).length
+
+  const gradedCount = activities.filter((a) => attempts[a.id]?.status === 'graded').length
 
   return (
     <AppShell tabs={TABS} current={tab} onChange={setTab}>
@@ -116,11 +134,41 @@ export default function StudentHomePage() {
 
       {tab === 'acts' && (
         <div className="space-y-4">
+          <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-bold">أنشطتي</h2>
+                <p className="mt-1 text-base text-white/85">
+                  {doneCount} من {activities.length} نشاطًا مُنجَزًا
+                  {gradedCount > 0 && <> — {gradedCount} مصحّح</>}
+                </p>
+              </div>
+              <button
+                className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
+                onClick={() => void refresh()}
+                disabled={refreshing}
+              >
+                {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}
+              </button>
+            </div>
+            <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
+              <span className="flex-[3] bg-accent" />
+              <span className="flex-1 bg-secondary" />
+              <span className="flex-1 bg-warning" />
+            </div>
+          </section>
+
           <section className={card}>
-            <h2 className="text-xl font-bold text-primary">أنشطتي</h2>
-            <p className="mt-1 text-sm text-ink-muted">
-              {doneCount} من {activities.length} نشاطًا مُنجَزًا
-            </p>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-primary">قائمة الأنشطة</h3>
+              <button
+                className={btnOutline}
+                onClick={() => void refresh()}
+                disabled={refreshing}
+              >
+                {refreshing ? '⏳ جارٍ...' : '🔄 تحديث'}
+              </button>
+            </div>
 
             {loading ? (
               <p className="mt-4 text-ink-muted">جارٍ التحميل...</p>
@@ -142,29 +190,29 @@ export default function StudentHomePage() {
                   <tbody>
                     {activities.map((a) => {
                       const at = attempts[a.id]
+                      const isDraft = at?.status === 'draft'
+                      const isSubmitted = at?.status === 'submitted'
+                      const isGraded = at?.status === 'graded'
                       return (
                         <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
                           <td className="p-3 text-base font-semibold text-ink">{a.title}</td>
                           <td className="p-3">الأسبوع {a.week_number}</td>
                           <td className="p-3">
-                            {at ? <Tag tone="info">أُنجز ✓</Tag> : <Tag tone="ok">متاح</Tag>}
+                            {isGraded
+                              ? <Tag tone="ok">مصحح ✓</Tag>
+                              : isSubmitted
+                                ? <Tag tone="wait">بانتظار التصحيح</Tag>
+                                : isDraft
+                                  ? <Tag tone="info">قيد الإجابة</Tag>
+                                  : <Tag tone="ok">متاح</Tag>}
                           </td>
                           <td className="p-3">
-                            {at ? (
-                              <button
-                                className="rounded-xl border border-primary bg-white px-4 py-1.5 text-sm font-semibold text-primary hover:bg-primary-soft"
-                                onClick={() => setTab('selftest')}
-                              >
-                                مراجعة
-                              </button>
-                            ) : (
-                              <button
-                                className="rounded-xl bg-primary px-4 py-1.5 text-sm font-semibold text-white hover:bg-primary-hover"
-                                onClick={() => setTab('selftest')}
-                              >
-                                ابدأ
-                              </button>
-                            )}
+                            <button
+                              className={isGraded ? btnOutline : btn}
+                              onClick={() => setTab('selftest')}
+                            >
+                              {isGraded ? 'عرض إجاباتي' : isSubmitted ? 'تعديل الإجابات' : isDraft ? 'متابعة' : 'ابدأ'}
+                            </button>
                           </td>
                         </tr>
                       )
@@ -179,14 +227,36 @@ export default function StudentHomePage() {
 
       {tab === 'grades' && (
         <div className="space-y-4">
-          <section className={card}>
-            <h2 className="text-xl font-bold text-primary">درجاتي</h2>
+          <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-bold">درجاتي</h2>
+                <p className="mt-1 text-base text-white/85">نتائجك في الأنشطة المصححة.</p>
+              </div>
+              <button
+                className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
+                onClick={() => void refresh()}
+                disabled={refreshing}
+              >
+                {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}
+              </button>
+            </div>
+            <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
+              <span className="flex-[3] bg-accent" />
+              <span className="flex-1 bg-secondary" />
+              <span className="flex-1 bg-warning" />
+            </div>
+          </section>
 
+          <section className={card}>
             {loading ? (
               <p className="mt-4 text-ink-muted">جارٍ التحميل...</p>
             ) : error ? (
               <p className="mt-4 rounded-xl bg-error-soft p-3 font-semibold text-error">{error}</p>
-            ) : activities.filter((a) => attempts[a.id]).length === 0 ? (
+            ) : activities.filter((a) => {
+              const s = attempts[a.id]?.status
+              return s === 'submitted' || s === 'graded'
+            }).length === 0 ? (
               <p className="mt-4 text-ink-muted">لا نتائج بعد.</p>
             ) : (
               <div className="mt-4 overflow-x-auto">
@@ -202,27 +272,35 @@ export default function StudentHomePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {activities.filter((a) => attempts[a.id]).map((a) => {
-                      const at = attempts[a.id]!
-                      const total = at.auto_score + (at.manual_score ?? 0)
-                      const graded = at.status === 'graded'
-                      return (
-                        <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
-                          <td className="p-3 text-base font-semibold text-ink">{a.title}</td>
-                          <td className="p-3">الأسبوع {a.week_number}</td>
-                          <td className="p-3 font-semibold text-primary">{at.auto_score}</td>
-                          <td className="p-3">{at.manual_score ?? '—'}</td>
-                          <td className="p-3 text-lg font-bold text-secondary" dir="ltr">
-                            {total.toFixed(1)} / {a.total_possible}
-                          </td>
-                          <td className="p-3">
-                            {graded
-                              ? <Tag tone="ok">مصحح ✓</Tag>
-                              : <Tag tone="wait">بانتظار المقالي</Tag>}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                    {activities
+                      .filter((a) => {
+                        const s = attempts[a.id]?.status
+                        return s === 'submitted' || s === 'graded'
+                      })
+                      .map((a) => {
+                        const at = attempts[a.id]!
+                        const rawTotal = at.auto_score + (at.manual_score ?? 0)
+                        const cappedTotal = Math.min(rawTotal, a.total_possible)
+                        const graded = at.status === 'graded'
+                        return (
+                          <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
+                            <td className="p-3 text-base font-semibold text-ink">{a.title}</td>
+                            <td className="p-3">الأسبوع {a.week_number}</td>
+                            <td className="p-3 font-semibold text-primary">{graded ? at.auto_score : '—'}</td>
+                            <td className="p-3">{graded ? (at.manual_score ?? '—') : '—'}</td>
+                            <td className="p-3 text-lg font-bold text-secondary" dir="ltr">
+                              {graded
+                                ? <>{cappedTotal.toFixed(1)} / {a.total_possible}</>
+                                : <>— / {a.total_possible}</>}
+                            </td>
+                            <td className="p-3">
+                              {graded
+                                ? <Tag tone="ok">مصحح ✓</Tag>
+                                : <Tag tone="wait">بانتظار التصحيح</Tag>}
+                            </td>
+                          </tr>
+                        )
+                      })}
                   </tbody>
                 </table>
               </div>
