@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../app/auth-context'
 import { supabase } from '../../lib/supabase'
 import FeedTab from './FeedTab'
@@ -18,7 +18,6 @@ const TABS: ShellTab[] = [
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
 const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
-const btnRefresh = 'rounded-xl bg-white px-4 py-2 text-sm font-semibold text-primary shadow-sm hover:bg-primary-soft disabled:opacity-60 ring-1 ring-white/40'
 const th = 'p-3 text-start text-ink-muted'
 
 interface ActivityRow {
