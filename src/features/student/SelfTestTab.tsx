@@ -37,6 +37,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
   const [attempts, setAttempts] = useState<Record<string, Attempt>>({})
   const [retakes, setRetakes] = useState<Record<string, RetakeRow>>({})
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [running, setRunning] = useState<Activity | null>(null)
@@ -61,7 +62,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   const load = useCallback(async () => {
     if (!supabase) return
-    setLoading(true)
     const [a, w, at, rq] = await Promise.all([
       supabase.from('activities').select('id,week_id,title,release'),
       supabase.from('weeks').select('id,number,title').order('number'),
@@ -83,10 +83,43 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       setRetakes(rm)
       setError(null)
     }
-    setLoading(false)
   }, [])
 
-  useEffect(() => { void load() }, [load])
+  const initialLoad = useCallback(async () => {
+    if (!supabase) return
+    setLoading(true)
+    await load()
+    setLoading(false)
+  }, [load])
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true)
+    await load()
+    // إعادة تحميل حالة النشاط الحالي إن كنا داخله
+    if (running && supabase) {
+      const fresh = (await supabase.from('attempts')
+        .select('id,activity_id,auto_score,manual_score,status,submitted_at')
+        .eq('activity_id', running.id)
+        .maybeSingle()).data as Attempt | null
+      if (fresh) {
+        // لو الحالة تغيرت من submitted إلى graded → نُحدّث الواجهة للمراجعة
+        if (fresh.status === 'graded' && mode === 'edit') {
+          const stored = await supabase.from('answers')
+            .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
+            .eq('attempt_id', fresh.id)
+          const map: Record<string, AnswerRow> = {}
+          for (const row of (stored.data ?? []) as AnswerRow[]) map[row.question_id] = row
+          setReviewAnswers(map)
+          setMode('review')
+          setAnswers({})
+          await loadNotes(running.id)
+        }
+      }
+    }
+    setRefreshing(false)
+  }, [load, running, mode])
+
+  useEffect(() => { void initialLoad() }, [initialLoad])
 
   async function loadExamData(activityId: string) {
     if (!supabase) return null
@@ -136,7 +169,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       const rows = (stored.data ?? []) as AnswerRow[]
 
       if (existing.status === 'graded') {
-        // وضع المراجعة — فقط بعد التصحيح
         setMode('review')
         const map: Record<string, AnswerRow> = {}
         for (const row of rows) map[row.question_id] = row
@@ -144,7 +176,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
         setAnswers({})
         await loadNotes(act.id)
       } else {
-        // وضع التحرير — draft أو submitted
         setMode('edit')
         const st: Record<string, AnswerState> = {}
         for (const row of rows) {
@@ -267,7 +298,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
-  /* ============ شاشة النتيجة (بعد الحفظ) ============ */
+  /* ============ شاشة النتيجة ============ */
   if (running && result) {
     const essayCount = questions.filter((q) => q.type.startsWith('essay')).length
     return (
@@ -325,13 +356,22 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
               </h2>
               <p className="mt-1 text-base text-white/85">{running.title}</p>
             </div>
-            <button
-              className="rounded-xl bg-white/15 px-5 py-2.5 text-base font-semibold text-white ring-1 ring-white/30 hover:bg-white/25"
-              onClick={() => { setRunning(null); setResult(null); setMode('edit') }}
-              disabled={busy}
-            >
-              عودة
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-xl bg-white/15 px-5 py-2.5 text-base font-semibold text-white ring-1 ring-white/30 transition hover:bg-white/25 disabled:opacity-60"
+                onClick={() => void refresh()}
+                disabled={refreshing || busy}
+              >
+                {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}
+              </button>
+              <button
+                className="rounded-xl bg-white/15 px-5 py-2.5 text-base font-semibold text-white ring-1 ring-white/30 transition hover:bg-white/25"
+                onClick={() => { setRunning(null); setResult(null); setMode('edit') }}
+                disabled={busy}
+              >
+                عودة
+              </button>
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">
@@ -395,8 +435,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
                           <span className={`rounded-lg border px-2 py-0.5 font-semibold ${style.badgeBg}`}>{i + 1}</span>
                           <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-semibold text-primary">{q.score} درجة</span>
-
-                          {/* عرض الدرجة — فقط في المراجعة بعد التصحيح */}
                           {isReview && rev?.awarded_score !== null && rev?.awarded_score !== undefined && (
                             <span className={
                               'rounded-lg px-2 py-0.5 font-semibold ' +
@@ -480,7 +518,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                           )
                         )}
 
-                        {/* 💡 التوضيح — فقط في المراجعة بعد التصحيح */}
                         {isReview && notes[q.id] && (
                           <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft/30 p-3 text-sm leading-7 text-ink">
                             <b className="text-primary">💡 التوضيح: </b>
@@ -498,7 +535,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
         {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
 
-        {/* وضع التحرير: زر الحفظ */}
         {!isReview && (
           <>
             <div className="rounded-2xl border border-light-blue bg-primary-soft/40 p-4 text-sm text-ink">
@@ -510,7 +546,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
           </>
         )}
 
-        {/* وضع المراجعة: زر طلب الإعادة */}
         {isReview && running && (() => {
           const at = attempts[running.id]
           const retake = retakes[running.id]
@@ -548,8 +583,19 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
   return (
     <div className="space-y-5">
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
-        <h2 className="text-3xl font-bold">اختبر نفسك</h2>
-        <p className="mt-1 text-base text-white/85">اختبر فهمك لدروس الأسابيع المنشورة.</p>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold">اختبر نفسك</h2>
+            <p className="mt-1 text-base text-white/85">اختبر فهمك لدروس الأسابيع المنشورة.</p>
+          </div>
+          <button
+            className="rounded-xl bg-white px-6 py-3 text-base font-bold text-primary shadow-md transition hover:bg-primary-soft disabled:opacity-60"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+          >
+            {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث الصفحة'}
+          </button>
+        </div>
         <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
           <span className="flex-[3] bg-accent" />
           <span className="flex-1 bg-secondary" />
@@ -560,6 +606,17 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
 
       <section className={card}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-lg font-bold text-primary">قائمة الاختبارات</h3>
+          <button
+            className="rounded-xl border border-primary bg-white px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+          >
+            {refreshing ? '⏳ جارٍ...' : '🔄 تحديث'}
+          </button>
+        </div>
+
         {activities.length === 0 ? (
           <p className="text-lg text-ink-muted">لا توجد اختبارات متاحة الآن.</p>
         ) : (
