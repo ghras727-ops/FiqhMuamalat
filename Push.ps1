@@ -3,7 +3,6 @@ param(
     [string]$Message
 )
 
-# مهم: نخفف ErrorActionPreference حتى لا يعتبر stderr من npm خطأ
 $ErrorActionPreference = 'Continue'
 $root = 'D:\FiqhMuamalat'
 Set-Location $root
@@ -14,7 +13,6 @@ Write-Host "  STEP 1: npm run build" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# نحوّل stderr إلى stdout مؤقتًا لتجنب NativeCommandError
 $buildOutput = cmd /c "npm run build 2>&1"
 $exitCode = $LASTEXITCODE
 
@@ -43,16 +41,41 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
 $status = git status --short
-if (-not $status) {
-    Write-Host "No changes to push." -ForegroundColor Yellow
+$hasChanges = [bool]$status
+
+if ($hasChanges) {
+    cmd /c "git add ."
+    if ($LASTEXITCODE -ne 0) { Write-Host "git add failed" -ForegroundColor Red; exit 1 }
+
+    cmd /c "git commit -m `"$Message`""
+    if ($LASTEXITCODE -ne 0) { Write-Host "git commit failed" -ForegroundColor Red; exit 1 }
+} else {
+    Write-Host "No new uncommitted changes." -ForegroundColor Yellow
+}
+
+# فحص: هل هناك commits محلية غير مدفوعة؟
+$unpushed = git log origin/main..HEAD --oneline
+$hasUnpushed = [bool]$unpushed
+
+if (-not $hasChanges -and -not $hasUnpushed) {
+    Write-Host "Nothing to push." -ForegroundColor Yellow
     exit 0
 }
 
-cmd /c "git add ."
-if ($LASTEXITCODE -ne 0) { Write-Host "git add failed" -ForegroundColor Red; exit 1 }
+if ($hasUnpushed) {
+    Write-Host "Unpushed commits:" -ForegroundColor Yellow
+    $unpushed | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+}
 
-cmd /c "git commit -m `"$Message`""
-if ($LASTEXITCODE -ne 0) { Write-Host "git commit failed" -ForegroundColor Red; exit 1 }
+# اسحب بـ rebase تحسبًا لأي تغيير بعيد
+cmd /c "git pull origin main --rebase"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Host "  X git pull --rebase FAILED (conflict?)" -ForegroundColor Red
+    Write-Host "============================================" -ForegroundColor Red
+    exit 1
+}
 
 cmd /c "git push origin main"
 if ($LASTEXITCODE -ne 0) { Write-Host "git push failed" -ForegroundColor Red; exit 1 }

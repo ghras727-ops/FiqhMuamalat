@@ -1,44 +1,29 @@
-@import url("https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap");
-@import "tailwindcss";
-
-@theme {
-  --font-sans: "Tajawal", "Segoe UI", Tahoma, sans-serif;
-
-  --color-primary: #0b6cb3;
-  --color-primary-hover: #095a96;
-  --color-primary-active: #074a7b;
-  --color-primary-soft: #e6f2fa;
-
-  --color-secondary: #198b48;
-  --color-secondary-hover: #147339;
-  --color-secondary-active: #105c2e;
-  --color-secondary-soft: #e8f5ed;
-
-  --color-accent: #49cef3;
-  --color-accent-soft: #95d4ed;
-  --color-link: #159cda;
-
-  --color-success: #198b48;
-  --color-error: #d74050;
-  --color-error-soft: #fbeaec;
-  --color-warning: #dce271;
-  --color-warning-soft: #f7f9dc;
-
-  --color-bg: #f7fbfd;
-  --color-surface: #eef6fb;
-  --color-light-blue: #cfe3ee;
-  --color-border: #d6e4ec;
-  --color-ink: #123a2e;
-  --color-ink-muted: #4b5d63;
-  --color-disabled: #b9c6cc;
-}
-
-html {
-  direction: rtl;
-}
-
-body {
-  background: var(--color-bg);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
+/* ============ تقرير A4 للطباعة ============ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+  body {
+    background: white !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  .no-print {
+    display: none !important;
+  }
 }

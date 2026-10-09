@@ -6,6 +6,7 @@ import WeekPacksView from './WeekPacksView'
 import SelfTestTab from './SelfTestTab'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import Tag from '../../components/Tag'
+import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
 
 const TABS: ShellTab[] = [
   { key: 'feed', label: 'المنصة' },
@@ -36,6 +37,27 @@ interface AttemptRow {
   submitted_at: string | null
 }
 
+interface MyReport {
+  id: string
+  type: string
+  from_week_number: number
+  to_week_number: number
+  report_number: string | null
+  approved_at: string
+  seen_at: string | null
+  teacher_note: string | null
+  snapshot: ReportSnapshot
+}
+
+function timeAgo(iso: string): string {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000
+  if (diff < 60) return 'الآن'
+  if (diff < 3600) return `قبل ${Math.floor(diff / 60)} دقيقة`
+  if (diff < 86400) return `قبل ${Math.floor(diff / 3600)} ساعة`
+  if (diff < 604800) return `قبل ${Math.floor(diff / 86400)} يوم`
+  return new Date(iso).toLocaleDateString('ar-SA-u-nu-latn')
+}
+
 export default function StudentHomePage() {
   const { profile } = useAuth()
   const [tab, setTab] = useState('feed')
@@ -46,16 +68,23 @@ export default function StudentHomePage() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [reports, setReports] = useState<MyReport[]>([])
+  const [viewingReport, setViewingReport] = useState<MyReport | null>(null)
+
   const load = useCallback(async () => {
     if (!supabase) return
     setError(null)
 
-    const [aRes, atRes] = await Promise.all([
+    const [aRes, atRes, rpRes] = await Promise.all([
       supabase.from('activities').select('id,title,week_id'),
       supabase.from('attempts').select('id,activity_id,auto_score,manual_score,status,submitted_at'),
+      supabase.from('weekly_reports')
+        .select('id,type,from_week_number,to_week_number,report_number,approved_at,seen_at,teacher_note,snapshot')
+        .eq('status', 'active')
+        .order('approved_at', { ascending: false }),
     ])
 
-    if (aRes.error || atRes.error) {
+    if (aRes.error || atRes.error || rpRes.error) {
       setError('تعذّر تحميل البيانات.')
       return
     }
@@ -93,6 +122,8 @@ export default function StudentHomePage() {
     const am: Record<string, AttemptRow> = {}
     for (const t of (atRes.data ?? []) as AttemptRow[]) am[t.activity_id] = t
     setAttempts(am)
+
+    setReports((rpRes.data ?? []) as MyReport[])
   }, [])
 
   const initialLoad = useCallback(async () => {
@@ -109,12 +140,22 @@ export default function StudentHomePage() {
 
   useEffect(() => { void initialLoad() }, [initialLoad])
 
+  async function openReport(r: MyReport) {
+    setViewingReport(r)
+    if (!r.seen_at && supabase) {
+      await supabase.rpc('mark_report_seen', { p_report_id: r.id })
+      // حدّث محليًا بلا إعادة تحميل
+      setReports((prev) => prev.map((x) => x.id === r.id ? { ...x, seen_at: new Date().toISOString() } : x))
+    }
+  }
+
   const doneCount = activities.filter((a) => {
     const at = attempts[a.id]
     return at?.status === 'submitted' || at?.status === 'graded'
   }).length
 
   const gradedCount = activities.filter((a) => attempts[a.id]?.status === 'graded').length
+  const unseenReports = reports.filter((r) => !r.seen_at).length
 
   return (
     <AppShell tabs={TABS} current={tab} onChange={setTab}>
@@ -133,7 +174,7 @@ export default function StudentHomePage() {
 
       {tab === 'acts' && (
         <div className="space-y-4">
-          <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 className="text-3xl font-bold">أنشطتي</h2>
@@ -160,11 +201,7 @@ export default function StudentHomePage() {
           <section className={card}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-bold text-primary">قائمة الأنشطة</h3>
-              <button
-                className={btnOutline}
-                onClick={() => void refresh()}
-                disabled={refreshing}
-              >
+              <button className={btnOutline} onClick={() => void refresh()} disabled={refreshing}>
                 {refreshing ? '⏳ جارٍ...' : '🔄 تحديث'}
               </button>
             </div>
@@ -206,10 +243,7 @@ export default function StudentHomePage() {
                                   : <Tag tone="ok">متاح</Tag>}
                           </td>
                           <td className="p-3">
-                            <button
-                              className={isGraded ? btnOutline : btn}
-                              onClick={() => setTab('selftest')}
-                            >
+                            <button className={isGraded ? btnOutline : btn} onClick={() => setTab('selftest')}>
                               {isGraded ? 'عرض إجاباتي' : isSubmitted ? 'تعديل الإجابات' : isDraft ? 'متابعة' : 'ابدأ'}
                             </button>
                           </td>
@@ -226,7 +260,7 @@ export default function StudentHomePage() {
 
       {tab === 'grades' && (
         <div className="space-y-4">
-          <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 className="text-3xl font-bold">درجاتي</h2>
@@ -247,7 +281,63 @@ export default function StudentHomePage() {
             </div>
           </section>
 
+          {/* قسم التقارير الرسمية */}
+          {reports.length > 0 && (
+            <section className="rounded-2xl border-2 border-accent bg-gradient-to-l from-accent-soft/40 to-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-bold text-primary">
+                    📄 تقاريري الرسمية {unseenReports > 0 && (
+                      <span className="ms-2 rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">
+                        {unseenReports} جديد
+                      </span>
+                    )}
+                  </h3>
+                  <p className="mt-1 text-sm text-ink-muted">
+                    تقارير أكاديمية معتمدة من مدرس المقرر — يمكنك طباعتها أو حفظها PDF.
+                  </p>
+                </div>
+              </div>
+              <ul className="mt-4 space-y-3">
+                {reports.map((r) => (
+                  <li
+                    key={r.id}
+                    className={
+                      'flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 bg-white p-4 transition hover:shadow-md ' +
+                      (r.seen_at ? 'border-light-blue' : 'border-accent')
+                    }
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-base font-bold text-ink">
+                          {r.type === 'weekly'
+                            ? `تقرير الأسبوع ${r.from_week_number}`
+                            : `تقرير تراكمي — الأسابيع ${r.from_week_number} – ${r.to_week_number}`}
+                        </span>
+                        {!r.seen_at && (
+                          <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">جديد</span>
+                        )}
+                        {r.report_number && (
+                          <span className="rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">
+                            {r.report_number}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 text-xs text-ink-muted">
+                        صدر {timeAgo(r.approved_at)}
+                      </div>
+                    </div>
+                    <button className={btn} onClick={() => void openReport(r)}>
+                      عرض التقرير
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           <section className={card}>
+            <h3 className="text-lg font-bold text-primary">جدول الدرجات</h3>
             {loading ? (
               <p className="mt-4 text-ink-muted">جارٍ التحميل...</p>
             ) : error ? (
@@ -305,6 +395,37 @@ export default function StudentHomePage() {
               </div>
             )}
           </section>
+        </div>
+      )}
+
+      {/* نافذة عرض التقرير للطالب */}
+      {viewingReport && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
+          <div className="mx-auto max-w-[900px]">
+            <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
+              <div className="text-base font-bold text-primary">
+                📄 {viewingReport.type === 'weekly'
+                  ? `تقرير الأسبوع ${viewingReport.from_week_number}`
+                  : `تقرير تراكمي — الأسابيع ${viewingReport.from_week_number} – ${viewingReport.to_week_number}`}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className={btnOutline} onClick={() => window.print()}>
+                  🖨️ طباعة / PDF
+                </button>
+                <button className={btn} onClick={() => setViewingReport(null)}>
+                  إغلاق
+                </button>
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <WeeklyReport
+                snapshot={viewingReport.snapshot}
+                reportNumber={viewingReport.report_number}
+                approvedAt={viewingReport.approved_at}
+                teacherNote={viewingReport.teacher_note}
+              />
+            </div>
+          </div>
         </div>
       )}
     </AppShell>
