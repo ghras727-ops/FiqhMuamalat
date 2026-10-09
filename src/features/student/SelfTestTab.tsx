@@ -272,8 +272,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     setBusy(false)
     if (rpcErr) { setError(rpcErr.message); return }
     const r = data as { auto_score: number } | null
-    const totalScore = questions.reduce((s, q) => s + q.score, 0)
-    setResult({ auto: r?.auto_score ?? 0, total: totalScore, answered: list.length })
+    setResult({ auto: r?.auto_score ?? 0, total: questions.reduce((s, q) => s + q.score, 0), answered: list.length })
     await load()
     onAttemptSaved?.()
   }
@@ -359,7 +358,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       if (q) grouped[q.type].push(link)
     }
     const week = weeks.find((w) => w.id === running.week_id)
-    const totalScore = questions.reduce((s, q) => s + q.score, 0)
     const answered = countAnswered()
     const isReview = mode === 'review'
     const stats = countAnsweredByType()
