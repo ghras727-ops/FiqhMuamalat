@@ -86,11 +86,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
           paddingBottom: '12px',
         }}
       >
-        <img
-          src="/UST.png"
-          alt="شعار الجامعة"
-          style={{ width: '90px', height: '90px', objectFit: 'contain' }}
-        />
+        <img src="/UST.png" alt="شعار الجامعة" style={{ width: '90px', height: '90px', objectFit: 'contain' }} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#0B6CB3', lineHeight: 1.3 }}>
             جامعة العلوم والتكنولوجيا
@@ -118,8 +114,8 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       {/* ================= عنوان المدى + عدد الأسابيع ================= */}
       <div
         style={{
-          marginTop: '16px',
-          padding: '12px 16px',
+          marginTop: '14px',
+          padding: '10px 14px',
           background: isWeekly ? '#E6F2FA' : '#E8F5ED',
           borderInlineStart: '5px solid ' + (isWeekly ? '#0B6CB3' : '#198B48'),
           borderRadius: '8px',
@@ -130,13 +126,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
           gap: '8px',
         }}
       >
-        <div
-          style={{
-            fontSize: '18px',
-            fontWeight: 800,
-            color: isWeekly ? '#0B6CB3' : '#198B48',
-          }}
-        >
+        <div style={{ fontSize: '18px', fontWeight: 800, color: isWeekly ? '#0B6CB3' : '#198B48' }}>
           {isWeekly
             ? `تقرير الأسبوع ${from_week}`
             : `تقرير تراكمي — من الأسبوع ${from_week} إلى الأسبوع ${to_week}`}
@@ -156,7 +146,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       </div>
 
       {/* ================= بيانات الطالب ================= */}
-      <section style={{ marginTop: '18px' }}>
+      <section style={{ marginTop: '16px' }}>
         <h2 style={sectionTitleStyle}>بيانات الطالب</h2>
         <table style={tableStyle}>
           <tbody>
@@ -187,7 +177,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       </section>
 
       {/* ================= ملخص النتيجة ================= */}
-      <section style={{ marginTop: '18px' }}>
+      <section style={{ marginTop: '16px' }}>
         <h2 style={sectionTitleStyle}>ملخص النتيجة</h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }}>
           <SummaryCard label="الدرجة المحصّلة" value={`${studentTotal} / ${totalPossible}`} tone="primary" />
@@ -213,39 +203,39 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         </div>
       </section>
 
-      {/* ================= جدول تفصيل الأسابيع ================= */}
-      <section style={{ marginTop: '18px' }}>
+      {/* ================= جدول تفصيل الأسابيع (مضغوط) ================= */}
+      <section style={{ marginTop: '16px' }}>
         <h2 style={sectionTitleStyle}>تفصيل الأسابيع</h2>
-        <table style={tableStyle}>
+        <table style={compactTableStyle}>
           <thead>
             <tr>
-              <th style={{ ...headerCellStyle, width: '70px' }}>الأسبوع</th>
-              <th style={headerCellStyle}>عنوان الدرس</th>
-              <th style={{ ...headerCellStyle, width: '90px' }}>الدرجة</th>
-              <th style={{ ...headerCellStyle, width: '70px' }}>النسبة</th>
-              <th style={{ ...headerCellStyle, width: '110px' }}>الحالة</th>
-              <th style={{ ...headerCellStyle, width: '110px' }}>تاريخ الأداء</th>
+              <th style={{ ...compactHeaderCellStyle, width: '55px' }}>الأسبوع</th>
+              <th style={compactHeaderCellStyle}>عنوان الدرس</th>
+              <th style={{ ...compactHeaderCellStyle, width: '85px' }}>الدرجة</th>
+              <th style={{ ...compactHeaderCellStyle, width: '60px' }}>النسبة</th>
+              <th style={{ ...compactHeaderCellStyle, width: '100px' }}>الحالة</th>
+              <th style={{ ...compactHeaderCellStyle, width: '100px' }}>تاريخ الأداء</th>
             </tr>
           </thead>
           <tbody>
             {weeks.map((w) => (
               <tr key={w.number}>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontWeight: 800, color: '#0B6CB3' }}>
+                <td style={{ ...compactBodyCellStyle, textAlign: 'center', fontWeight: 800, color: '#0B6CB3' }}>
                   {w.number}
                 </td>
-                <td style={{ ...bodyCellStyle, fontWeight: 600 }}>{w.title || '—'}</td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontFamily: 'monospace', fontWeight: 700 }}>
+                <td style={{ ...compactBodyCellStyle, fontWeight: 600 }}>{w.title || '—'}</td>
+                <td style={{ ...compactBodyCellStyle, textAlign: 'center', fontFamily: 'monospace', fontWeight: 700 }}>
                   {w.has_attempt
                     ? `${w.final_score ?? 0} / ${w.total_possible}`
                     : `— / ${w.total_possible}`}
                 </td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontWeight: 800, color: w.has_attempt ? '#0B6CB3' : '#B9C6CC' }}>
+                <td style={{ ...compactBodyCellStyle, textAlign: 'center', fontWeight: 800, color: w.has_attempt ? '#0B6CB3' : '#B9C6CC' }}>
                   {w.has_attempt ? `${w.percent ?? 0}%` : '—'}
                 </td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontSize: '13px', fontWeight: 600 }}>
+                <td style={{ ...compactBodyCellStyle, textAlign: 'center', fontSize: '12px', fontWeight: 600 }}>
                   {w.has_attempt ? statusLabel(w.status) : 'لا محاولة'}
                 </td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontSize: '13px', color: '#4B5D63' }}>
+                <td style={{ ...compactBodyCellStyle, textAlign: 'center', fontSize: '12px', color: '#4B5D63' }}>
                   {w.submitted_at ? fmtDate(w.submitted_at) : '—'}
                 </td>
               </tr>
@@ -262,11 +252,11 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         const avgVal = w.class_avg ?? 0
         const topVal = w.class_top ?? 0
         return (
-          <section style={{ marginTop: '18px', pageBreakInside: 'avoid' }}>
+          <section style={{ marginTop: '16px', pageBreakInside: 'avoid' }}>
             <h2 style={sectionTitleStyle}>
               {isWeekly ? 'مقارنة أدائك بالمجموعة' : 'المقارنة (تعتمد على أحدث أسبوع مصحح)'}
             </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <BarRow label="أنت" value={studentVal} max={max} color="#0B6CB3" suffix={` / ${w.total_possible}`} />
               <BarRow label="متوسط المجموعة" value={avgVal} max={max} color="#49CEF3" suffix={` / ${w.total_possible}`} />
               <BarRow label="أعلى نتيجة" value={topVal} max={max} color="#198B48" suffix={` / ${w.total_possible}`} />
@@ -277,17 +267,17 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
 
       {/* ================= ملاحظة الأستاذ ================= */}
       {teacherNote && (
-        <section style={{ marginTop: '18px', pageBreakInside: 'avoid' }}>
+        <section style={{ marginTop: '16px', pageBreakInside: 'avoid' }}>
           <h2 style={sectionTitleStyle}>ملاحظة المدرس</h2>
           <div
             style={{
-              padding: '14px 16px',
+              padding: '12px 14px',
               background: '#F7FBFD',
               border: '1px solid #D6E4EC',
               borderInlineStart: '5px solid #0B6CB3',
               borderRadius: '8px',
               fontSize: '14px',
-              lineHeight: 2,
+              lineHeight: 1.9,
               whiteSpace: 'pre-wrap',
               color: '#123A2E',
               fontWeight: 500,
@@ -298,22 +288,22 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         </section>
       )}
 
-      {/* ================= التذييل + التوقيع ================= */}
+      {/* ================= التذييل + التوقيع (مضغوط) ================= */}
       <footer
         style={{
-          marginTop: '30px',
-          paddingTop: '16px',
+          marginTop: '20px',
+          paddingTop: '10px',
           borderTop: '3px solid #0B6CB3',
           display: 'flex',
           alignItems: 'flex-end',
           justifyContent: 'space-between',
-          gap: '20px',
+          gap: '16px',
           pageBreakInside: 'avoid',
         }}
       >
-        <div style={{ fontSize: '13px', color: '#4B5D63', lineHeight: 2 }}>
+        <div style={{ fontSize: '12px', color: '#4B5D63', lineHeight: 1.8 }}>
           <div>
-            <b style={{ color: '#0B6CB3', fontSize: '14px' }}>مدرس المقرر:</b>{' '}
+            <b style={{ color: '#0B6CB3' }}>مدرس المقرر:</b>{' '}
             <span style={{ fontWeight: 700, color: '#123A2E' }}>د. محمد إسماعيل</span>
           </div>
           <div>
@@ -323,26 +313,49 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
             <b style={{ color: '#0B6CB3' }}>العام الدراسي:</b> 1448هـ — 2026م
           </div>
           {reportNumber && (
-            <div style={{ fontFamily: 'monospace', marginTop: '6px' }}>
+            <div style={{ fontFamily: 'monospace', marginTop: '2px' }}>
               <b style={{ color: '#0B6CB3' }}>رقم التقرير:</b> {reportNumber}
             </div>
           )}
         </div>
-        <div style={{ textAlign: 'center' }}>
+
+        {/* التوقيع متراكب فوق اسم المدرس */}
+        <div
+          style={{
+            position: 'relative',
+            width: '170px',
+            height: '70px',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+          }}
+        >
+          {/* صورة التوقيع فوق الخط */}
           <img
             src="/signature.png"
             alt="توقيع المدرس"
-            style={{ width: '160px', height: '75px', objectFit: 'contain' }}
+            style={{
+              position: 'absolute',
+              top: '-4px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '140px',
+              height: '55px',
+              objectFit: 'contain',
+              opacity: 0.92,
+              pointerEvents: 'none',
+            }}
           />
+          {/* خط الاسم */}
           <div
             style={{
-              marginTop: '4px',
-              fontSize: '13px',
-              color: '#4B5D63',
-              fontWeight: 700,
-              borderTop: '1px solid #D6E4EC',
-              paddingTop: '4px',
               width: '160px',
+              borderTop: '1.5px solid #0B6CB3',
+              paddingTop: '3px',
+              textAlign: 'center',
+              fontSize: '12px',
+              fontWeight: 700,
+              color: '#0B6CB3',
             }}
           >
             د. محمد إسماعيل
@@ -358,8 +371,8 @@ const sectionTitleStyle: React.CSSProperties = {
   fontSize: '17px',
   fontWeight: 800,
   color: '#0B6CB3',
-  marginBottom: '10px',
-  paddingBottom: '5px',
+  marginBottom: '8px',
+  paddingBottom: '4px',
   borderBottom: '2px solid #D6E4EC',
   letterSpacing: '0.2px',
 }
@@ -372,18 +385,9 @@ const tableStyle: React.CSSProperties = {
   background: 'white',
 }
 
-const headerCellStyle: React.CSSProperties = {
-  padding: '10px 12px',
-  background: '#E6F2FA',
-  color: '#0B6CB3',
-  fontWeight: 800,
-  textAlign: 'right',
-  borderBottom: '2px solid #0B6CB3',
-  fontSize: '14px',
-}
 
 const labelCellStyle: React.CSSProperties = {
-  padding: '10px 12px',
+  padding: '8px 12px',
   background: '#F7FBFD',
   fontWeight: 700,
   color: '#0B6CB3',
@@ -393,18 +397,38 @@ const labelCellStyle: React.CSSProperties = {
 }
 
 const valueCellStyle: React.CSSProperties = {
-  padding: '10px 12px',
+  padding: '8px 12px',
   color: '#123A2E',
   borderBottom: '1px solid #D6E4EC',
   fontSize: '14px',
   fontWeight: 500,
 }
 
-const bodyCellStyle: React.CSSProperties = {
-  padding: '9px 12px',
+/* ============ أنماط الجدول المضغوط ============ */
+const compactTableStyle: React.CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  border: '1px solid #D6E4EC',
+  fontSize: '13px',
+  background: 'white',
+}
+
+const compactHeaderCellStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  background: '#E6F2FA',
+  color: '#0B6CB3',
+  fontWeight: 800,
+  textAlign: 'right',
+  borderBottom: '2px solid #0B6CB3',
+  fontSize: '13px',
+}
+
+const compactBodyCellStyle: React.CSSProperties = {
+  padding: '5px 8px',
   color: '#123A2E',
   borderBottom: '1px solid #D6E4EC',
-  fontSize: '14px',
+  fontSize: '13px',
+  lineHeight: 1.4,
 }
 
 function SummaryCard({ label, value, tone }: { label: string; value: string; tone: 'primary' | 'success' | 'info' | 'error' | 'ink' }) {
@@ -419,7 +443,7 @@ function SummaryCard({ label, value, tone }: { label: string; value: string; ton
   return (
     <div
       style={{
-        padding: '12px 10px',
+        padding: '10px 8px',
         background: t.bg,
         borderTop: `4px solid ${t.border}`,
         borderRadius: '6px',
@@ -427,7 +451,7 @@ function SummaryCard({ label, value, tone }: { label: string; value: string; ton
       }}
     >
       <div style={{ fontSize: '12px', color: '#4B5D63', fontWeight: 700 }}>{label}</div>
-      <div style={{ fontSize: '20px', fontWeight: 800, color: t.text, marginTop: '4px', fontFamily: 'monospace' }}>
+      <div style={{ fontSize: '19px', fontWeight: 800, color: t.text, marginTop: '3px', fontFamily: 'monospace' }}>
         {value}
       </div>
     </div>
@@ -444,20 +468,20 @@ function BarRow({ label, value, max, color, suffix }: { label: string; value: nu
           justifyContent: 'space-between',
           fontSize: '14px',
           color: '#123A2E',
-          marginBottom: '4px',
+          marginBottom: '3px',
           fontWeight: 700,
         }}
       >
         <span>{label}</span>
         <span style={{ fontFamily: 'monospace' }}>{value}{suffix}</span>
       </div>
-      <div style={{ height: '18px', background: '#F0F4F7', borderRadius: '9px', overflow: 'hidden' }}>
+      <div style={{ height: '16px', background: '#F0F4F7', borderRadius: '8px', overflow: 'hidden' }}>
         <div
           style={{
             height: '100%',
             width: `${pct}%`,
             background: color,
-            borderRadius: '9px',
+            borderRadius: '8px',
             transition: 'width 0.3s',
           }}
         />
