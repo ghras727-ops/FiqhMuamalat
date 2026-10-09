@@ -66,84 +66,112 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       style={{
         width: '210mm',
         minHeight: '297mm',
-        padding: '12mm 14mm',
+        padding: '10mm 12mm',
         background: 'white',
-        color: '#1F2937',
+        color: '#123A2E',
         fontFamily: '"IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
-        fontSize: '11px',
-        lineHeight: 1.6,
+        fontSize: '14px',
+        lineHeight: 1.8,
         boxSizing: 'border-box',
         margin: '0 auto',
       }}
     >
       {/* ================= الترويسة ================= */}
-      <header style={{ display: 'flex', alignItems: 'center', gap: '14px', borderBottom: '2px solid #0B6CB3', paddingBottom: '8px' }}>
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          borderBottom: '3px solid #0B6CB3',
+          paddingBottom: '12px',
+        }}
+      >
         <img
           src="/UST.png"
           alt="شعار الجامعة"
-          style={{ width: '70px', height: '70px', objectFit: 'contain' }}
+          style={{ width: '90px', height: '90px', objectFit: 'contain' }}
         />
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '18px', fontWeight: 700, color: '#0B6CB3' }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0B6CB3', lineHeight: 1.3 }}>
             جامعة العلوم والتكنولوجيا
           </div>
-          <div style={{ fontSize: '13px', color: '#198B48', fontWeight: 600, marginTop: '2px' }}>
+          <div style={{ fontSize: '17px', color: '#198B48', fontWeight: 700, marginTop: '3px' }}>
             مقرر فقه المعاملات - 1
           </div>
-          <div style={{ fontSize: '12px', color: '#4B5D63', marginTop: '2px' }}>
-            تقرير الأداء الأكاديمي الفردي
+          <div style={{ fontSize: '16px', color: '#4B5D63', marginTop: '3px', fontWeight: 600 }}>
+            نتيجة الاختبار الأسبوعية
           </div>
         </div>
-        <div style={{ textAlign: 'left', fontSize: '10px', color: '#4B5D63' }}>
+        <div style={{ textAlign: 'left', fontSize: '12px', color: '#4B5D63', lineHeight: 1.6 }}>
           {reportNumber && (
-            <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0B6CB3' }}>
+            <div style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0B6CB3', fontSize: '13px' }}>
               {reportNumber}
             </div>
           )}
-          <div>تاريخ الإصدار</div>
+          <div style={{ marginTop: '2px' }}>
+            <b style={{ color: '#0B6CB3' }}>تاريخ الإصدار</b>
+          </div>
           <div>{fmtDate(approvedAt)}</div>
         </div>
       </header>
 
-      {/* ================= عنوان المدى ================= */}
+      {/* ================= عنوان المدى + عدد الأسابيع ================= */}
       <div
         style={{
-          marginTop: '14px',
-          padding: '8px 12px',
+          marginTop: '16px',
+          padding: '12px 16px',
           background: isWeekly ? '#E6F2FA' : '#E8F5ED',
-          borderInlineStart: '4px solid ' + (isWeekly ? '#0B6CB3' : '#198B48'),
-          borderRadius: '6px',
-          fontSize: '13px',
-          fontWeight: 700,
-          color: isWeekly ? '#0B6CB3' : '#198B48',
+          borderInlineStart: '5px solid ' + (isWeekly ? '#0B6CB3' : '#198B48'),
+          borderRadius: '8px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '8px',
         }}
       >
-        <span>
+        <div
+          style={{
+            fontSize: '18px',
+            fontWeight: 800,
+            color: isWeekly ? '#0B6CB3' : '#198B48',
+          }}
+        >
           {isWeekly
             ? `تقرير الأسبوع ${from_week}`
             : `تقرير تراكمي — من الأسبوع ${from_week} إلى الأسبوع ${to_week}`}
-        </span>
-        <span style={{ fontSize: '11px', fontWeight: 600, color: '#4B5D63' }}>
+        </div>
+        <div
+          style={{
+            fontSize: '14px',
+            fontWeight: 700,
+            color: '#4B5D63',
+            background: '#FFFFFF',
+            padding: '4px 12px',
+            borderRadius: '20px',
+          }}
+        >
           عدد الأسابيع: {weeks.length}
-        </span>
+        </div>
       </div>
 
       {/* ================= بيانات الطالب ================= */}
-      <section style={{ marginTop: '14px' }}>
+      <section style={{ marginTop: '18px' }}>
         <h2 style={sectionTitleStyle}>بيانات الطالب</h2>
         <table style={tableStyle}>
           <tbody>
             <tr>
               <td style={labelCellStyle}>الاسم الكامل</td>
-              <td style={valueCellStyle} colSpan={3}>{student.full_name}</td>
+              <td style={{ ...valueCellStyle, fontWeight: 700 }} colSpan={3}>
+                {student.full_name}
+              </td>
             </tr>
             <tr>
               <td style={labelCellStyle}>الرقم الجامعي</td>
               <td style={valueCellStyle}>
-                <span style={{ fontFamily: 'monospace' }} dir="ltr">{student.student_no}</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700 }} dir="ltr">
+                  {student.student_no}
+                </span>
               </td>
               <td style={labelCellStyle}>المستوى</td>
               <td style={valueCellStyle}>الثاني</td>
@@ -159,9 +187,9 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       </section>
 
       {/* ================= ملخص النتيجة ================= */}
-      <section style={{ marginTop: '14px' }}>
+      <section style={{ marginTop: '18px' }}>
         <h2 style={sectionTitleStyle}>ملخص النتيجة</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }}>
           <SummaryCard label="الدرجة المحصّلة" value={`${studentTotal} / ${totalPossible}`} tone="primary" />
           <SummaryCard label="النسبة المئوية" value={`${percent}%`} tone={percent >= 70 ? 'success' : percent >= 50 ? 'info' : 'error'} />
           <SummaryCard
@@ -185,39 +213,39 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         </div>
       </section>
 
-      {/* ================= جدول النتائج ================= */}
-      <section style={{ marginTop: '14px' }}>
+      {/* ================= جدول تفصيل الأسابيع ================= */}
+      <section style={{ marginTop: '18px' }}>
         <h2 style={sectionTitleStyle}>تفصيل الأسابيع</h2>
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={{ ...headerCellStyle, width: '50px' }}>الأسبوع</th>
-              <th style={headerCellStyle}>الدرس / النشاط</th>
-              <th style={{ ...headerCellStyle, width: '70px' }}>الدرجة</th>
-              <th style={{ ...headerCellStyle, width: '60px' }}>النسبة</th>
-              <th style={{ ...headerCellStyle, width: '90px' }}>الحالة</th>
-              <th style={{ ...headerCellStyle, width: '90px' }}>تاريخ الأداء</th>
+              <th style={{ ...headerCellStyle, width: '70px' }}>الأسبوع</th>
+              <th style={headerCellStyle}>عنوان الدرس</th>
+              <th style={{ ...headerCellStyle, width: '90px' }}>الدرجة</th>
+              <th style={{ ...headerCellStyle, width: '70px' }}>النسبة</th>
+              <th style={{ ...headerCellStyle, width: '110px' }}>الحالة</th>
+              <th style={{ ...headerCellStyle, width: '110px' }}>تاريخ الأداء</th>
             </tr>
           </thead>
           <tbody>
             {weeks.map((w) => (
               <tr key={w.number}>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontWeight: 700 }}>
+                <td style={{ ...bodyCellStyle, textAlign: 'center', fontWeight: 800, color: '#0B6CB3' }}>
                   {w.number}
                 </td>
-                <td style={bodyCellStyle}>{w.title || '—'}</td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontFamily: 'monospace' }}>
+                <td style={{ ...bodyCellStyle, fontWeight: 600 }}>{w.title || '—'}</td>
+                <td style={{ ...bodyCellStyle, textAlign: 'center', fontFamily: 'monospace', fontWeight: 700 }}>
                   {w.has_attempt
                     ? `${w.final_score ?? 0} / ${w.total_possible}`
                     : `— / ${w.total_possible}`}
                 </td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontWeight: 700, color: w.has_attempt ? '#0B6CB3' : '#B9C6CC' }}>
+                <td style={{ ...bodyCellStyle, textAlign: 'center', fontWeight: 800, color: w.has_attempt ? '#0B6CB3' : '#B9C6CC' }}>
                   {w.has_attempt ? `${w.percent ?? 0}%` : '—'}
                 </td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontSize: '10px' }}>
+                <td style={{ ...bodyCellStyle, textAlign: 'center', fontSize: '13px', fontWeight: 600 }}>
                   {w.has_attempt ? statusLabel(w.status) : 'لا محاولة'}
                 </td>
-                <td style={{ ...bodyCellStyle, textAlign: 'center', fontSize: '10px' }}>
+                <td style={{ ...bodyCellStyle, textAlign: 'center', fontSize: '13px', color: '#4B5D63' }}>
                   {w.submitted_at ? fmtDate(w.submitted_at) : '—'}
                 </td>
               </tr>
@@ -234,11 +262,11 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         const avgVal = w.class_avg ?? 0
         const topVal = w.class_top ?? 0
         return (
-          <section style={{ marginTop: '14px' }}>
+          <section style={{ marginTop: '18px', pageBreakInside: 'avoid' }}>
             <h2 style={sectionTitleStyle}>
               {isWeekly ? 'مقارنة أدائك بالمجموعة' : 'المقارنة (تعتمد على أحدث أسبوع مصحح)'}
             </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <BarRow label="أنت" value={studentVal} max={max} color="#0B6CB3" suffix={` / ${w.total_possible}`} />
               <BarRow label="متوسط المجموعة" value={avgVal} max={max} color="#49CEF3" suffix={` / ${w.total_possible}`} />
               <BarRow label="أعلى نتيجة" value={topVal} max={max} color="#198B48" suffix={` / ${w.total_possible}`} />
@@ -249,19 +277,20 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
 
       {/* ================= ملاحظة الأستاذ ================= */}
       {teacherNote && (
-        <section style={{ marginTop: '14px' }}>
+        <section style={{ marginTop: '18px', pageBreakInside: 'avoid' }}>
           <h2 style={sectionTitleStyle}>ملاحظة المدرس</h2>
           <div
             style={{
-              padding: '10px 12px',
+              padding: '14px 16px',
               background: '#F7FBFD',
               border: '1px solid #D6E4EC',
-              borderInlineStart: '4px solid #0B6CB3',
-              borderRadius: '6px',
-              fontSize: '11px',
-              lineHeight: 1.8,
+              borderInlineStart: '5px solid #0B6CB3',
+              borderRadius: '8px',
+              fontSize: '14px',
+              lineHeight: 2,
               whiteSpace: 'pre-wrap',
-              color: '#1F2937',
+              color: '#123A2E',
+              fontWeight: 500,
             }}
           >
             {teacherNote}
@@ -272,28 +301,30 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       {/* ================= التذييل + التوقيع ================= */}
       <footer
         style={{
-          marginTop: '24px',
-          paddingTop: '12px',
-          borderTop: '2px solid #0B6CB3',
+          marginTop: '30px',
+          paddingTop: '16px',
+          borderTop: '3px solid #0B6CB3',
           display: 'flex',
           alignItems: 'flex-end',
           justifyContent: 'space-between',
-          gap: '16px',
+          gap: '20px',
+          pageBreakInside: 'avoid',
         }}
       >
-        <div style={{ fontSize: '10px', color: '#4B5D63', lineHeight: 1.8 }}>
+        <div style={{ fontSize: '13px', color: '#4B5D63', lineHeight: 2 }}>
           <div>
-            <b style={{ color: '#0B6CB3' }}>مدرس المقرر:</b> د. محمد إسماعيل
+            <b style={{ color: '#0B6CB3', fontSize: '14px' }}>مدرس المقرر:</b>{' '}
+            <span style={{ fontWeight: 700, color: '#123A2E' }}>د. محمد إسماعيل</span>
           </div>
           <div>
-            <b>تاريخ الإصدار:</b> {fmtDate(approvedAt)}
+            <b style={{ color: '#0B6CB3' }}>تاريخ الإصدار:</b> {fmtDate(approvedAt)}
           </div>
           <div>
-            <b>العام الدراسي:</b> 1448هـ — 2026م
+            <b style={{ color: '#0B6CB3' }}>العام الدراسي:</b> 1448هـ — 2026م
           </div>
           {reportNumber && (
-            <div style={{ fontFamily: 'monospace', marginTop: '4px' }}>
-              <b>رقم التقرير:</b> {reportNumber}
+            <div style={{ fontFamily: 'monospace', marginTop: '6px' }}>
+              <b style={{ color: '#0B6CB3' }}>رقم التقرير:</b> {reportNumber}
             </div>
           )}
         </div>
@@ -301,9 +332,19 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
           <img
             src="/signature.png"
             alt="توقيع المدرس"
-            style={{ width: '130px', height: '60px', objectFit: 'contain' }}
+            style={{ width: '160px', height: '75px', objectFit: 'contain' }}
           />
-          <div style={{ marginTop: '2px', fontSize: '10px', color: '#4B5D63' }}>
+          <div
+            style={{
+              marginTop: '4px',
+              fontSize: '13px',
+              color: '#4B5D63',
+              fontWeight: 700,
+              borderTop: '1px solid #D6E4EC',
+              paddingTop: '4px',
+              width: '160px',
+            }}
+          >
             د. محمد إسماعيل
           </div>
         </div>
@@ -314,53 +355,56 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
 
 /* ============ أنماط فرعية ============ */
 const sectionTitleStyle: React.CSSProperties = {
-  fontSize: '12px',
-  fontWeight: 700,
+  fontSize: '17px',
+  fontWeight: 800,
   color: '#0B6CB3',
-  marginBottom: '6px',
-  paddingBottom: '2px',
-  borderBottom: '1px solid #D6E4EC',
+  marginBottom: '10px',
+  paddingBottom: '5px',
+  borderBottom: '2px solid #D6E4EC',
+  letterSpacing: '0.2px',
 }
 
 const tableStyle: React.CSSProperties = {
   width: '100%',
   borderCollapse: 'collapse',
   border: '1px solid #D6E4EC',
-  fontSize: '11px',
+  fontSize: '14px',
   background: 'white',
 }
 
 const headerCellStyle: React.CSSProperties = {
-  padding: '6px 8px',
+  padding: '10px 12px',
   background: '#E6F2FA',
   color: '#0B6CB3',
-  fontWeight: 700,
+  fontWeight: 800,
   textAlign: 'right',
   borderBottom: '2px solid #0B6CB3',
-  fontSize: '10px',
+  fontSize: '14px',
 }
 
 const labelCellStyle: React.CSSProperties = {
-  padding: '6px 8px',
+  padding: '10px 12px',
   background: '#F7FBFD',
-  fontWeight: 600,
-  color: '#4B5D63',
-  width: '120px',
+  fontWeight: 700,
+  color: '#0B6CB3',
+  width: '140px',
   borderBottom: '1px solid #D6E4EC',
-  fontSize: '10px',
+  fontSize: '14px',
 }
 
 const valueCellStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  color: '#1F2937',
+  padding: '10px 12px',
+  color: '#123A2E',
   borderBottom: '1px solid #D6E4EC',
-  fontSize: '11px',
+  fontSize: '14px',
+  fontWeight: 500,
 }
 
 const bodyCellStyle: React.CSSProperties = {
-  padding: '5px 8px',
-  color: '#1F2937',
+  padding: '9px 12px',
+  color: '#123A2E',
   borderBottom: '1px solid #D6E4EC',
+  fontSize: '14px',
 }
 
 function SummaryCard({ label, value, tone }: { label: string; value: string; tone: 'primary' | 'success' | 'info' | 'error' | 'ink' }) {
@@ -369,21 +413,21 @@ function SummaryCard({ label, value, tone }: { label: string; value: string; ton
     success: { bg: '#E8F5ED', border: '#198B48', text: '#198B48' },
     info:    { bg: '#E8F8FD', border: '#49CEF3', text: '#0B6CB3' },
     error:   { bg: '#FBEAEC', border: '#D74050', text: '#D74050' },
-    ink:     { bg: '#F7FBFD', border: '#4B5D63', text: '#1F2937' },
+    ink:     { bg: '#F7FBFD', border: '#4B5D63', text: '#123A2E' },
   }
   const t = tones[tone]
   return (
     <div
       style={{
-        padding: '8px 10px',
+        padding: '12px 10px',
         background: t.bg,
-        borderTop: `3px solid ${t.border}`,
-        borderRadius: '4px',
+        borderTop: `4px solid ${t.border}`,
+        borderRadius: '6px',
         textAlign: 'center',
       }}
     >
-      <div style={{ fontSize: '9px', color: '#4B5D63', fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: '14px', fontWeight: 700, color: t.text, marginTop: '2px', fontFamily: 'monospace' }}>
+      <div style={{ fontSize: '12px', color: '#4B5D63', fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: '20px', fontWeight: 800, color: t.text, marginTop: '4px', fontFamily: 'monospace' }}>
         {value}
       </div>
     </div>
@@ -394,17 +438,26 @@ function BarRow({ label, value, max, color, suffix }: { label: string; value: nu
   const pct = max === 0 ? 0 : Math.round((value / max) * 100)
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#4B5D63', marginBottom: '2px' }}>
-        <span style={{ fontWeight: 600 }}>{label}</span>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          fontSize: '14px',
+          color: '#123A2E',
+          marginBottom: '4px',
+          fontWeight: 700,
+        }}
+      >
+        <span>{label}</span>
         <span style={{ fontFamily: 'monospace' }}>{value}{suffix}</span>
       </div>
-      <div style={{ height: '12px', background: '#F0F4F7', borderRadius: '6px', overflow: 'hidden' }}>
+      <div style={{ height: '18px', background: '#F0F4F7', borderRadius: '9px', overflow: 'hidden' }}>
         <div
           style={{
             height: '100%',
             width: `${pct}%`,
             background: color,
-            borderRadius: '6px',
+            borderRadius: '9px',
             transition: 'width 0.3s',
           }}
         />
