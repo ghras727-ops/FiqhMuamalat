@@ -98,8 +98,8 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
   const totalPossible = totals.total_possible
   const studentTotal = totals.student_total
   const percent = totals.percent
-  const accent = isWeekly ? C.blue : C.green
-  const accentSoft = isWeekly ? C.blueSoft : C.greenSoft
+  const accent = C.blue
+  const accentSoft = C.blueSoft
   const single = gradedWeeks.length === 1 ? gradedWeeks[0] : null
 
   return (
@@ -129,15 +129,33 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         .print-area, .print-area * { font-family: "Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif; }
         @page { size: A4 portrait; margin: 0; }
         @media print {
-          html, body { margin: 0 !important; padding: 0 !important; height: auto !important; background: white !important; }
+          /* اطبع التقرير وحده: أخفِ كل ما سواه دون أن يشغل مساحة صفحة إضافية */
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 210mm !important;
+            height: 295mm !important;
+            max-height: 295mm !important;
+            overflow: hidden !important;
+            background: white !important;
+          }
+          body * { visibility: hidden !important; }
+          .print-area, .print-area * { visibility: visible !important; }
           .print-area {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: auto !important;
+            bottom: auto !important;
+            transform: none !important;
+            zoom: 1 !important;
             margin: 0 !important;
             box-shadow: none !important;
             border: none !important;
             border-radius: 0 !important;
-            /* أقل من 297mm بهامش أمان حتى لا يُنتج المتصفح صفحة ثانية */
+            width: 210mm !important;
             height: 295mm !important;
             max-height: 295mm !important;
             overflow: hidden !important;
@@ -272,20 +290,26 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
           <SectionTitle>بيانات الطالب</SectionTitle>
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: '2.4fr 1fr',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              padding: '7px 14px',
               border: `1px solid ${C.line}`,
               borderRadius: '8px',
               background: C.paper,
-              overflow: 'hidden',
             }}
           >
-            <Field label="الاسم الكامل" bold>{student.full_name}</Field>
-            <Field label="الرقم المعرّف" divider>
-              <span dir="ltr" style={{ fontFamily: 'monospace', fontWeight: 800, unicodeBidi: 'isolate' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', minWidth: 0 }}>
+              <span style={{ fontSize: '12.5px', color: C.gray, fontWeight: 700, whiteSpace: 'nowrap' }}>الاسم الكامل:</span>
+              <span style={{ fontSize: '15px', fontWeight: 800, color: C.ink }}>{student.full_name}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexShrink: 0 }}>
+              <span style={{ fontSize: '12.5px', color: C.gray, fontWeight: 700, whiteSpace: 'nowrap' }}>الرقم المعرّف:</span>
+              <span dir="ltr" style={{ fontFamily: 'monospace', fontSize: '15px', fontWeight: 800, color: C.blue, unicodeBidi: 'isolate' }}>
                 {student.student_no}
               </span>
-            </Field>
+            </div>
           </div>
         </section>
 
@@ -535,15 +559,6 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
       {children}
       <span style={{ flex: 1, height: '1px', background: C.line }} />
     </h2>
-  )
-}
-
-function Field({ label, children, bold, divider }: { label: string; children: React.ReactNode; bold?: boolean; divider?: boolean }) {
-  return (
-    <div style={{ padding: '6px 12px', borderInlineStart: divider ? `1px solid ${C.line}` : undefined }}>
-      <div style={{ fontSize: '11px', color: C.gray, fontWeight: 700 }}>{label}</div>
-      <div style={{ fontSize: '14.5px', fontWeight: bold ? 800 : 700, color: C.ink, lineHeight: 1.5 }}>{children}</div>
-    </div>
   )
 }
 
