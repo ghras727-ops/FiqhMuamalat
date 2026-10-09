@@ -46,6 +46,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
   const [aq, setAq] = useState<AQ[]>([])
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({})
   const [reviewAnswers, setReviewAnswers] = useState<Record<string, AnswerRow>>({})
+  const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [result, setResult] = useState<{ auto: number; total: number; answered: number } | null>(null)
@@ -105,6 +106,17 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     return { questions: qs, options: om, aq: aqList }
   }
 
+  async function loadNotes(activityId: string) {
+    if (!supabase) return
+    const { data, error: rpcErr } = await supabase.rpc('get_my_question_notes', { p_activity_id: activityId })
+    if (rpcErr) { setNotes({}); return }
+    const nm: Record<string, string> = {}
+    for (const row of (data ?? []) as { question_id: string; note: string }[]) {
+      if (row.note) nm[row.question_id] = row.note
+    }
+    setNotes(nm)
+  }
+
   async function start(act: Activity) {
     if (!supabase) return
     setError(null)
@@ -124,14 +136,15 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       const rows = (stored.data ?? []) as AnswerRow[]
 
       if (existing.status === 'graded') {
-        // مراجعة فقط — بدون تعديل
+        // وضع المراجعة — فقط بعد التصحيح
         setMode('review')
         const map: Record<string, AnswerRow> = {}
         for (const row of rows) map[row.question_id] = row
         setReviewAnswers(map)
         setAnswers({})
+        await loadNotes(act.id)
       } else {
-        // تحرير — سواء draft أو submitted
+        // وضع التحرير — draft أو submitted
         setMode('edit')
         const st: Record<string, AnswerState> = {}
         for (const row of rows) {
@@ -143,11 +156,13 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
         }
         setAnswers(st)
         setReviewAnswers({})
+        setNotes({})
       }
     } else {
       setMode('edit')
       setAnswers({})
       setReviewAnswers({})
+      setNotes({})
     }
     setSaveStatus('idle')
     setRunning(act)
@@ -212,16 +227,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     setResult({ auto: r?.auto_score ?? 0, total: totalScore, answered: list.length })
     await load()
     onAttemptSaved?.()
-    const attemptId = (data as { attempt_id?: string } | null)?.attempt_id
-    if (attemptId) {
-      const stored = await supabase.from('answers')
-        .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
-        .eq('attempt_id', attemptId)
-      const map: Record<string, AnswerRow> = {}
-      for (const row of (stored.data ?? []) as AnswerRow[]) map[row.question_id] = row
-      setReviewAnswers(map)
-      setMode('edit')
-    }
   }
 
   async function retakeMyself(act: Activity) {
@@ -262,7 +267,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
-  /* ============ شاشة النتيجة ============ */
+  /* ============ شاشة النتيجة (بعد الحفظ) ============ */
   if (running && result) {
     const essayCount = questions.filter((q) => q.type.startsWith('essay')).length
     return (
@@ -291,9 +296,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
           <button className={btn} onClick={() => { setRunning(null); setResult(null); setMode('edit') }}>
             عودة للاختبارات
           </button>
-          <button className={btnOutline} onClick={() => setResult(null)}>
-            عرض إجاباتي
-          </button>
         </div>
       </section>
     )
@@ -319,7 +321,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
             <div>
               <h2 className="text-3xl font-bold">
                 {week ? `بنك أسئلة الأسبوع ${week.number}` : 'بنك الأسئلة'}
-                {isReview && <span className="ms-3 rounded-lg bg-white/20 px-3 py-1 text-base">عرض إجاباتي</span>}
+                {isReview && <span className="ms-3 rounded-lg bg-white/20 px-3 py-1 text-base">مراجعة بعد التصحيح</span>}
               </h2>
               <p className="mt-1 text-base text-white/85">{running.title}</p>
             </div>
@@ -388,32 +390,53 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                     const a = answers[q.id] ?? {}
                     const rev = reviewAnswers[q.id]
 
-                    const pickedOptionId = isReview ? (rev?.option_id ?? null) : (a.optionId ?? null)
-                    const pickedTf = isReview ? (rev?.text_answer ?? null) : (a.tf ?? null)
-                    const essayText = isReview ? (rev?.text_answer ?? '') : (a.text ?? '')
-
                     return (
                       <li key={q.id} className="rounded-xl border border-light-blue bg-white p-4 shadow-sm">
                         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
                           <span className={`rounded-lg border px-2 py-0.5 font-semibold ${style.badgeBg}`}>{i + 1}</span>
                           <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-semibold text-primary">{q.score} درجة</span>
+
+                          {/* عرض الدرجة — فقط في المراجعة بعد التصحيح */}
+                          {isReview && rev?.awarded_score !== null && rev?.awarded_score !== undefined && (
+                            <span className={
+                              'rounded-lg px-2 py-0.5 font-semibold ' +
+                              (rev.awarded_score === q.score
+                                ? 'bg-secondary-soft text-secondary ring-1 ring-secondary/20'
+                                : rev.awarded_score > 0
+                                  ? 'bg-accent-soft/40 text-primary ring-1 ring-accent/50'
+                                  : 'bg-error-soft text-error ring-1 ring-error/30')
+                            }>
+                              حصلت: {rev.awarded_score}
+                            </span>
+                          )}
+                          {isReview && !rev && (
+                            <span className="rounded-lg bg-error-soft px-2 py-0.5 font-semibold text-error ring-1 ring-error/20">لم تجب</span>
+                          )}
                         </div>
+
                         <div className="mt-3 whitespace-pre-wrap text-lg font-semibold leading-8 text-ink">{q.text}</div>
 
                         {q.type === 'mcq' && (
                           <div className="mt-3 space-y-2">
                             {qOpts.map((o) => {
-                              const checked = pickedOptionId === o.id
+                              const checked = isReview ? rev?.option_id === o.id : a.optionId === o.id
+                              const wrongPick = isReview && checked && rev?.is_correct === false
+                              const rightPick = isReview && checked && rev?.is_correct === true
                               return (
                                 <label key={o.id} className={
                                   'flex items-center gap-3 rounded-lg border p-3 text-base transition ' +
                                   (checked
-                                    ? 'border-primary bg-primary-soft font-semibold text-primary'
+                                    ? wrongPick
+                                      ? 'border-error bg-error-soft font-semibold text-error'
+                                      : rightPick
+                                        ? 'border-secondary bg-secondary-soft font-semibold text-secondary'
+                                        : 'border-primary bg-primary-soft font-semibold text-primary'
                                     : 'border-light-blue bg-white text-ink ' + (isReview ? '' : 'cursor-pointer hover:bg-primary-soft/40'))
                                 }>
                                   <input type="radio" name={'q-' + q.id} checked={checked} disabled={isReview} onChange={() => setAnswers({ ...answers, [q.id]: { optionId: o.id } })} className="h-5 w-5 accent-primary" />
                                   <span className="w-8 text-center font-bold text-primary">{o.label}</span>
                                   <span>{o.text}</span>
+                                  {isReview && checked && <span className="ms-auto text-sm font-bold">{rev?.is_correct ? '✓' : '✗'}</span>}
                                 </label>
                               )
                             })}
@@ -423,16 +446,24 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                         {q.type === 'tf' && (
                           <div className="mt-3 grid grid-cols-2 gap-3">
                             {[{ v: 'true', l: 'صح' }, { v: 'false', l: 'خطأ' }].map((c) => {
-                              const checked = pickedTf === c.v
+                              const current = isReview ? rev?.text_answer : a.tf
+                              const checked = current === c.v
+                              const wrongPick = isReview && checked && rev?.is_correct === false
+                              const rightPick = isReview && checked && rev?.is_correct === true
                               return (
                                 <label key={c.v} className={
                                   'flex items-center justify-center gap-3 rounded-lg border p-3 text-base font-semibold transition ' +
                                   (checked
-                                    ? 'border-secondary bg-secondary-soft text-secondary'
+                                    ? wrongPick
+                                      ? 'border-error bg-error-soft text-error'
+                                      : rightPick
+                                        ? 'border-secondary bg-secondary-soft text-secondary'
+                                        : 'border-primary bg-primary-soft text-primary'
                                     : 'border-light-blue bg-white text-ink ' + (isReview ? '' : 'cursor-pointer hover:bg-secondary-soft/40'))
                                 }>
                                   <input type="radio" name={'q-' + q.id} checked={checked} disabled={isReview} onChange={() => setAnswers({ ...answers, [q.id]: { tf: c.v } })} className="h-5 w-5 accent-secondary" />
                                   {c.l}
+                                  {isReview && checked && <span className="ms-1 text-sm font-bold">{rev?.is_correct ? '✓' : '✗'}</span>}
                                 </label>
                               )
                             })}
@@ -442,11 +473,19 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                         {q.type.startsWith('essay') && (
                           isReview ? (
                             <div className="mt-3 whitespace-pre-wrap rounded-lg bg-bg p-3 text-base leading-7 text-ink">
-                              {essayText || <span className="text-ink-muted">— لم تجب —</span>}
+                              {rev?.text_answer || <span className="text-ink-muted">— لم تجب —</span>}
                             </div>
                           ) : (
                             <textarea rows={6} className={input + ' mt-3 text-lg leading-8'} placeholder="اكتب إجابتك هنا..." value={a.text ?? ''} onChange={(e) => setAnswers({ ...answers, [q.id]: { text: e.target.value } })} />
                           )
+                        )}
+
+                        {/* 💡 التوضيح — فقط في المراجعة بعد التصحيح */}
+                        {isReview && notes[q.id] && (
+                          <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft/30 p-3 text-sm leading-7 text-ink">
+                            <b className="text-primary">💡 التوضيح: </b>
+                            {notes[q.id]}
+                          </div>
                         )}
                       </li>
                     )
@@ -459,12 +498,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
         {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
 
-        {isReview && (
-          <div className="rounded-2xl border border-light-blue bg-bg p-4 text-sm text-ink-muted">
-            هذه إجاباتك كما سلّمتها. لطلب إعادة، ارجع لقائمة الاختبارات.
-          </div>
-        )}
-
+        {/* وضع التحرير: زر الحفظ */}
         {!isReview && (
           <>
             <div className="rounded-2xl border border-light-blue bg-primary-soft/40 p-4 text-sm text-ink">
@@ -475,6 +509,37 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
             </button>
           </>
         )}
+
+        {/* وضع المراجعة: زر طلب الإعادة */}
+        {isReview && running && (() => {
+          const at = attempts[running.id]
+          const retake = retakes[running.id]
+          const hasPendingRetake = retake?.status === 'pending'
+          if (!at || at.status !== 'graded') return null
+          return (
+            <div className="rounded-2xl border-2 border-accent bg-gradient-to-l from-accent-soft/40 to-white p-5 shadow-sm">
+              <h3 className="text-lg font-bold text-primary">هل تريد إعادة الاختبار؟</h3>
+              <p className="mt-1 text-sm text-ink-muted">
+                يمكنك طلب إعادة محاولة جديدة. سيُرسل الطلب للأستاذ مع العذر الذي تكتبه.
+              </p>
+              {hasPendingRetake && (
+                <div className="mt-3 rounded-lg bg-accent-soft/40 px-3 py-2 text-sm font-semibold text-primary ring-1 ring-accent/50">
+                  📩 طلب الإعادة قيد المراجعة عند الأستاذ
+                </div>
+              )}
+              {retake?.status === 'rejected' && !hasPendingRetake && (
+                <div className="mt-3 rounded-lg bg-error-soft px-3 py-2 text-sm font-semibold text-error ring-1 ring-error/20">
+                  ❌ رُفض آخر طلب إعادة — يمكنك طلب إعادة جديدة.
+                </div>
+              )}
+              {!hasPendingRetake && (
+                <button className={btn + ' mt-3'} onClick={() => openRetakeModal(running, at.id)}>
+                  طلب إعادة
+                </button>
+              )}
+            </div>
+          )
+        })()}
       </div>
     )
   }
@@ -515,19 +580,23 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                       {w ? `بنك أسئلة الأسبوع ${w.number}` : ''}
                     </div>
                     <div className="mt-1 text-base text-ink">{a.title}</div>
+
+                    {isDraft && (
+                      <div className="mt-2 text-sm text-ink-muted"><b className="text-warning">قيد الإجابة</b> — لم تُسلّم بعد</div>
+                    )}
+
                     {isSubmitted && (
                       <div className="mt-2 text-sm text-ink-muted">
                         <b className="text-warning">بانتظار التصحيح</b> — يمكنك التعديل حتى يصحح الأستاذ.
                       </div>
                     )}
+
                     {isGraded && at && (
                       <div className="mt-2 text-sm text-ink-muted">
-                        النتيجة النهائية: <b className="text-secondary">{at.auto_score + (at.manual_score ?? 0)}</b>
+                        ✓ مصحح — الدرجة النهائية: <b className="text-secondary">{at.auto_score + (at.manual_score ?? 0)}</b>
                       </div>
                     )}
-                    {isDraft && (
-                      <div className="mt-2 text-sm text-ink-muted"><b className="text-warning">قيد الإجابة</b> — لم تُسلّم بعد</div>
-                    )}
+
                     {hasPendingRetake && (
                       <div className="mt-2 rounded-lg bg-accent-soft/40 px-3 py-1 text-xs font-semibold text-primary ring-1 ring-accent/50">
                         📩 طلب الإعادة قيد المراجعة عند الأستاذ
@@ -562,11 +631,10 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                     {isGraded && (
                       <>
                         <button className={btnOutline} onClick={() => void start(a)}>عرض إجاباتي</button>
-                        {!hasPendingRetake && !retake && (
-                          <button className={btn} onClick={() => openRetakeModal(a, at!.id)}>طلب إعادة</button>
-                        )}
-                        {retake?.status === 'rejected' && (
-                          <button className={btn} onClick={() => openRetakeModal(a, at!.id)}>طلب إعادة جديد</button>
+                        {!hasPendingRetake && (
+                          <button className={btn} onClick={() => openRetakeModal(a, at!.id)}>
+                            {retake?.status === 'rejected' ? 'طلب إعادة جديد' : 'طلب إعادة'}
+                          </button>
                         )}
                       </>
                     )}
