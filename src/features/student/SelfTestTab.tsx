@@ -46,6 +46,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
   const [aq, setAq] = useState<AQ[]>([])
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({})
   const [reviewAnswers, setReviewAnswers] = useState<Record<string, AnswerRow>>({})
+  const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [result, setResult] = useState<{ auto: number; total: number; answered: number } | null>(null)
@@ -53,7 +54,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     mcq: false, tf: false, essay_smart: false, essay_reasoning: false,
   })
 
-  // نافذة طلب الإعادة
   const [retakeModal, setRetakeModal] = useState<{ activityId: string; attemptId: string; activityTitle: string } | null>(null)
   const [retakeReason, setRetakeReason] = useState('')
   const [retakeError, setRetakeError] = useState<string | null>(null)
@@ -106,6 +106,17 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     return { questions: qs, options: om, aq: aqList }
   }
 
+  async function loadNotes(activityId: string) {
+    if (!supabase) return
+    const { data, error: rpcErr } = await supabase.rpc('get_my_question_notes', { p_activity_id: activityId })
+    if (rpcErr) { setNotes({}); return }
+    const nm: Record<string, string> = {}
+    for (const row of (data ?? []) as { question_id: string; note: string }[]) {
+      if (row.note) nm[row.question_id] = row.note
+    }
+    setNotes(nm)
+  }
+
   async function start(act: Activity) {
     if (!supabase) return
     setError(null)
@@ -128,6 +139,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
         for (const row of (an.data ?? []) as AnswerRow[]) map[row.question_id] = row
         setReviewAnswers(map)
         setAnswers({})
+        await loadNotes(act.id)
       } else {
         setMode('edit')
         const an = await supabase.from('answers')
@@ -143,11 +155,13 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
         }
         setAnswers(st)
         setReviewAnswers({})
+        setNotes({})
       }
     } else {
       setMode('edit')
       setAnswers({})
       setReviewAnswers({})
+      setNotes({})
     }
     setSaveStatus('idle')
     setRunning(act)
@@ -221,6 +235,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       for (const row of (an.data ?? []) as AnswerRow[]) map[row.question_id] = row
       setReviewAnswers(map)
       setMode('review')
+      await loadNotes(running.id)
     }
   }
 
@@ -262,7 +277,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
-  /* ============ شاشة النتيجة ============ */
   if (running && result) {
     const essayCount = questions.filter((q) => q.type.startsWith('essay')).length
     return (
@@ -299,7 +313,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     )
   }
 
-  /* ============ شاشة الاختبار / المراجعة ============ */
   if (running) {
     const sortedAq = [...aq].sort((a, b) => a.position - b.position)
     const grouped: Record<QType, AQ[]> = { mcq: [], tf: [], essay_smart: [], essay_reasoning: [] }
@@ -414,19 +427,22 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                             {qOpts.map((o) => {
                               const checked = isReview ? rev?.option_id === o.id : a.optionId === o.id
                               const wrongPick = isReview && checked && rev?.is_correct === false
+                              const rightPick = isReview && checked && rev?.is_correct === true
                               return (
                                 <label key={o.id} className={
                                   'flex items-center gap-3 rounded-lg border p-3 text-base transition ' +
                                   (checked
                                     ? wrongPick
                                       ? 'border-error bg-error-soft font-semibold text-error'
-                                      : 'border-primary bg-primary-soft font-semibold text-primary'
+                                      : rightPick
+                                        ? 'border-secondary bg-secondary-soft font-semibold text-secondary'
+                                        : 'border-primary bg-primary-soft font-semibold text-primary'
                                     : 'border-light-blue bg-white text-ink ' + (isReview ? '' : 'cursor-pointer hover:bg-primary-soft/40'))
                                 }>
                                   <input type="radio" name={'q-' + q.id} checked={checked} disabled={isReview} onChange={() => setAnswers({ ...answers, [q.id]: { optionId: o.id } })} className="h-5 w-5 accent-primary" />
                                   <span className="w-8 text-center font-bold text-primary">{o.label}</span>
                                   <span>{o.text}</span>
-                                  {isReview && checked && <span className="ms-auto text-sm">{rev?.is_correct ? '✓' : '✗'}</span>}
+                                  {isReview && checked && <span className="ms-auto text-sm font-bold">{rev?.is_correct ? '✓' : '✗'}</span>}
                                 </label>
                               )
                             })}
@@ -439,13 +455,16 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                               const current = isReview ? rev?.text_answer : a.tf
                               const checked = current === c.v
                               const wrongPick = isReview && checked && rev?.is_correct === false
+                              const rightPick = isReview && checked && rev?.is_correct === true
                               return (
                                 <label key={c.v} className={
                                   'flex items-center justify-center gap-3 rounded-lg border p-3 text-base font-semibold transition ' +
                                   (checked
                                     ? wrongPick
                                       ? 'border-error bg-error-soft text-error'
-                                      : 'border-secondary bg-secondary-soft text-secondary'
+                                      : rightPick
+                                        ? 'border-secondary bg-secondary-soft text-secondary'
+                                        : 'border-primary bg-primary-soft text-primary'
                                     : 'border-light-blue bg-white text-ink ' + (isReview ? '' : 'cursor-pointer hover:bg-secondary-soft/40'))
                                 }>
                                   <input type="radio" name={'q-' + q.id} checked={checked} disabled={isReview} onChange={() => setAnswers({ ...answers, [q.id]: { tf: c.v } })} className="h-5 w-5 accent-secondary" />
@@ -464,6 +483,14 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                           ) : (
                             <textarea rows={6} className={input + ' mt-3 text-lg leading-8'} placeholder="اكتب إجابتك هنا..." value={a.text ?? ''} onChange={(e) => setAnswers({ ...answers, [q.id]: { text: e.target.value } })} />
                           )
+                        )}
+
+                        {/* 💡 التوضيح — يظهر فقط في وضع المراجعة */}
+                        {isReview && notes[q.id] && (
+                          <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft/30 p-3 text-sm leading-7 text-ink">
+                            <b className="text-primary">💡 التوضيح: </b>
+                            {notes[q.id]}
+                          </div>
                         )}
                       </li>
                     )
@@ -490,7 +517,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     )
   }
 
-  /* ============ القائمة الافتراضية ============ */
   return (
     <div className="space-y-5">
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
@@ -590,24 +616,15 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
         )}
       </section>
 
-      {/* نافذة طلب الإعادة */}
       {retakeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !retakeSubmitting && setRetakeModal(null)}>
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-bold text-primary">طلب إعادة الاختبار</h3>
-            <p className="mt-1 text-sm text-ink-muted">
-              {retakeModal.activityTitle}
-            </p>
+            <p className="mt-1 text-sm text-ink-muted">{retakeModal.activityTitle}</p>
             <p className="mt-3 rounded-xl bg-accent-soft/40 p-3 text-sm text-ink ring-1 ring-accent/30">
               اكتب سببًا مختصرًا. سيظهر طلبك للأستاذ فقط.
             </p>
-            <textarea
-              rows={4}
-              className={input}
-              placeholder="مثال: لم أفهم بعض الأسئلة، وأريد فرصة أخرى."
-              value={retakeReason}
-              onChange={(e) => setRetakeReason(e.target.value)}
-            />
+            <textarea rows={4} className={input} placeholder="مثال: لم أفهم بعض الأسئلة، وأريد فرصة أخرى." value={retakeReason} onChange={(e) => setRetakeReason(e.target.value)} />
             {retakeError && <p className="mt-3 text-sm font-semibold text-error">{retakeError}</p>}
             <div className="mt-5 flex flex-wrap gap-2">
               <button className={btn} onClick={() => void submitRetakeRequest()} disabled={retakeSubmitting}>
