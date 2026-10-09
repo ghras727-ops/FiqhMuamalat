@@ -111,7 +111,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         height: '297mm',
         background: 'white',
         color: C.ink,
-        fontFamily: '"IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
+        fontFamily: '"Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
         fontSize: '13px',
         lineHeight: 1.6,
         boxSizing: 'border-box',
@@ -125,6 +125,8 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       }}
     >
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
+        .print-area, .print-area * { font-family: "Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif; }
         @page { size: A4; margin: 0; }
         @media print { .print-area { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
       `}</style>
@@ -133,44 +135,61 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       <div style={{ height: '6px', background: `linear-gradient(to left, ${C.blue}, ${C.cyan} 55%, ${C.green})`, flexShrink: 0 }} />
 
       <div style={{ padding: '8mm 11mm 8mm', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        {/* ================= الترويسة (سطران + بطاقة التقرير) ================= */}
+        {/* ================= الترويسة ================= */}
         <header
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '14px',
+            gap: '12px',
             paddingBottom: '10px',
             borderBottom: `1px solid ${C.line}`,
           }}
         >
-          <img src="/UST.png" alt="شعار الجامعة" style={{ width: '68px', height: '68px', objectFit: 'contain', flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '23px', fontWeight: 800, color: C.blue, lineHeight: 1.3 }}>
-              جامعة العلوم والتكنولوجيا
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
-              <span
-                style={{
-                  background: C.greenSoft,
-                  color: C.green,
-                  fontWeight: 800,
-                  fontSize: '13px',
-                  padding: '1px 10px',
-                  borderRadius: '20px',
-                }}
-              >
-                مقرر فقه المعاملات - 1
-              </span>
-              <span style={{ color: C.mute }}>•</span>
-              <span style={{ color: C.gray, fontWeight: 700, fontSize: '14px' }}>نتيجة الاختبار الأسبوعية</span>
+          {/* الشعار + الجهة (ثلاثة أسطر) */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <img src="/UST.png" alt="شعار الجامعة" style={{ width: '72px', height: '72px', objectFit: 'contain', flexShrink: 0 }} />
+            <div style={{ lineHeight: 1.5 }}>
+              <div style={{ fontSize: '20px', fontWeight: 800, color: C.blue }}>جامعة العلوم والتكنولوجيا</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: C.ink }}>كلية العلوم الإدارية والإنسانية</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: C.gray }}>قسم الشريعة والقانون</div>
             </div>
           </div>
 
-          {/* بطاقة رقم التقرير + التاريخ */}
+          {/* الوسط: المستوى + المقرر */}
           <div
             style={{
               flexShrink: 0,
-              minWidth: '120px',
+              textAlign: 'center',
+              padding: '0 16px',
+              borderInline: `1px solid ${C.line}`,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '5px',
+            }}
+          >
+            <span
+              style={{
+                background: C.blue,
+                color: 'white',
+                fontWeight: 800,
+                fontSize: '14.5px',
+                padding: '1px 16px',
+                borderRadius: '20px',
+              }}
+            >
+              المستوى الثاني
+            </span>
+            <span style={{ fontSize: '16px', fontWeight: 800, color: C.green, lineHeight: 1.4 }}>
+              المقرر: فقه المعاملات (1)
+            </span>
+          </div>
+
+          {/* الركن: رقم التقرير + التاريخ */}
+          <div
+            style={{
+              flexShrink: 0,
+              minWidth: '118px',
               border: `1px solid ${C.line}`,
               borderRadius: '8px',
               background: C.paper,
@@ -208,6 +227,8 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
           }}
         >
           <div style={{ fontSize: '16px', fontWeight: 800, color: accent }}>
+            نتيجة الاختبار الأسبوعية
+            <span style={{ margin: '0 8px', color: C.mute }}>|</span>
             {isWeekly
               ? `تقرير الأسبوع ${from_week}`
               : `تقرير تراكمي — من الأسبوع ${from_week} إلى الأسبوع ${to_week}`}
@@ -221,6 +242,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
               padding: '2px 12px',
               borderRadius: '20px',
               border: `1px solid ${C.line}`,
+              whiteSpace: 'nowrap',
             }}
           >
             عدد الأسابيع: {weeks.length}
@@ -233,7 +255,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '2.2fr 1.2fr 1fr',
+              gridTemplateColumns: '2.4fr 1fr',
               border: `1px solid ${C.line}`,
               borderRadius: '8px',
               background: C.paper,
@@ -246,7 +268,6 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
                 {student.student_no}
               </span>
             </Field>
-            <Field label="المستوى" divider>الثاني</Field>
           </div>
         </section>
 
@@ -414,56 +435,57 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         )}
 
         {/* ================= التذييل + التوقيع ================= */}
-        <footer
-          style={{
-            marginTop: 'auto',
-            paddingTop: '8px',
-            borderTop: `1px solid ${C.line}`,
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'space-between',
-            gap: '16px',
-            pageBreakInside: 'avoid',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: C.gray, lineHeight: 1.9 }}>
-            <div>
-              <b style={{ color: C.blue }}>مدرس المقرر:</b>{' '}
-              <span style={{ fontWeight: 700, color: C.ink }}>{TEACHER}</span>
-            </div>
-            <div>
-              <b style={{ color: C.blue }}>العام الدراسي:</b> 1448هـ — 2026م
-            </div>
+        <footer style={{ marginTop: 'auto', paddingTop: '8px', pageBreakInside: 'avoid' }}>
+          <div
+            style={{
+              padding: '6px 10px',
+              background: C.blueSoft,
+              border: `1px solid ${C.line}`,
+              borderRadius: '8px',
+              textAlign: 'center',
+              fontSize: '12.5px',
+              fontWeight: 700,
+              color: C.blue,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            مقرر المستوى الثاني - قسم الشريعة والقانون - فقه المعاملات (1) - مدرس المقرر: {TEACHER}
           </div>
 
-          <div style={{ position: 'relative', width: '170px', height: '56px', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-            <img
-              src="/signature.png"
-              alt="توقيع المدرس"
-              style={{
-                position: 'absolute',
-                top: '-2px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: '130px',
-                height: '44px',
-                objectFit: 'contain',
-                opacity: 0.92,
-                pointerEvents: 'none',
-              }}
-            />
-            <div
-              style={{
-                width: '160px',
-                borderTop: `1.5px solid ${C.blue}`,
-                paddingTop: '2px',
-                textAlign: 'center',
-                fontSize: '11.5px',
-                fontWeight: 700,
-                color: C.blue,
-              }}
-            >
-              {TEACHER}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px', marginTop: '6px' }}>
+            <div style={{ fontSize: '12px', color: C.gray, fontWeight: 600 }}>
+              <b style={{ color: C.blue }}>العام الدراسي:</b> 1448هـ — 2026م
+            </div>
+
+            <div style={{ position: 'relative', width: '220px', height: '78px', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+              <img
+                src="/signature.png"
+                alt="توقيع المدرس"
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: '190px',
+                  height: '64px',
+                  objectFit: 'contain',
+                  opacity: 0.92,
+                  pointerEvents: 'none',
+                }}
+              />
+              <div
+                style={{
+                  width: '210px',
+                  borderTop: `1.5px solid ${C.blue}`,
+                  paddingTop: '2px',
+                  textAlign: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: C.blue,
+                }}
+              >
+                {TEACHER}
+              </div>
             </div>
           </div>
         </footer>
