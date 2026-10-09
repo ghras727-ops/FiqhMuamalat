@@ -118,22 +118,23 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
     const existing = attempts[act.id]
     if (existing) {
-      if (existing.status === 'submitted' || existing.status === 'graded') {
+      const stored = await supabase.from('answers')
+        .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
+        .eq('attempt_id', existing.id)
+      const rows = (stored.data ?? []) as AnswerRow[]
+
+      if (existing.status === 'graded') {
+        // مراجعة فقط — بدون تعديل
         setMode('review')
-        const an = await supabase.from('answers')
-          .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
-          .eq('attempt_id', existing.id)
         const map: Record<string, AnswerRow> = {}
-        for (const row of (an.data ?? []) as AnswerRow[]) map[row.question_id] = row
+        for (const row of rows) map[row.question_id] = row
         setReviewAnswers(map)
         setAnswers({})
       } else {
+        // تحرير — سواء draft أو submitted
         setMode('edit')
-        const an = await supabase.from('answers')
-          .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
-          .eq('attempt_id', existing.id)
         const st: Record<string, AnswerState> = {}
-        for (const row of (an.data ?? []) as AnswerRow[]) {
+        for (const row of rows) {
           const q = data.questions.find((x) => x.id === row.question_id)
           if (!q) continue
           if (q.type === 'mcq' && row.option_id) st[row.question_id] = { optionId: row.option_id }
@@ -190,8 +191,8 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   async function submitFinal() {
     if (!supabase || !running) return
-    const unanswered = countAnswered()
-    if (unanswered === 0) { setError('أجب على سؤال واحد على الأقل.'); return }
+    const answeredCount = countAnswered()
+    if (answeredCount === 0) { setError('أجب على سؤال واحد على الأقل.'); return }
     setBusy(true); setError(null)
     const list: { question_id: string; option_id?: string; text_answer?: string }[] = []
     for (const q of questions) {
@@ -213,13 +214,13 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     onAttemptSaved?.()
     const attemptId = (data as { attempt_id?: string } | null)?.attempt_id
     if (attemptId) {
-      const an = await supabase.from('answers')
+      const stored = await supabase.from('answers')
         .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
         .eq('attempt_id', attemptId)
       const map: Record<string, AnswerRow> = {}
-      for (const row of (an.data ?? []) as AnswerRow[]) map[row.question_id] = row
+      for (const row of (stored.data ?? []) as AnswerRow[]) map[row.question_id] = row
       setReviewAnswers(map)
-      setMode('review')
+      setMode('edit')
     }
   }
 
@@ -267,8 +268,8 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     return (
       <section className={card}>
         <div className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
-          <h2 className="text-3xl font-bold">تم التسليم</h2>
-          <p className="mt-1 text-base text-white/85">تم استلام إجاباتك. لن تتمكن من التعديل حتى يصحح الأستاذ.</p>
+          <h2 className="text-3xl font-bold">تم حفظ الإجابات</h2>
+          <p className="mt-1 text-base text-white/85">يمكنك تعديل إجاباتك حتى يصحح الأستاذ.</p>
         </div>
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-light-blue bg-bg p-5">
@@ -318,7 +319,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
             <div>
               <h2 className="text-3xl font-bold">
                 {week ? `بنك أسئلة الأسبوع ${week.number}` : 'بنك الأسئلة'}
-                {isReview && <span className="ms-3 rounded-lg bg-white/20 px-3 py-1 text-base">إجاباتي</span>}
+                {isReview && <span className="ms-3 rounded-lg bg-white/20 px-3 py-1 text-base">عرض إجاباتي</span>}
               </h2>
               <p className="mt-1 text-base text-white/85">{running.title}</p>
             </div>
@@ -340,14 +341,9 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                   الدرجة العظمى: {totalScore}
                 </span>
                 {saveStatus === 'saving' && <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">جارٍ الحفظ...</span>}
-                {saveStatus === 'saved' && <span className="rounded-xl bg-secondary-soft px-4 py-2 text-sm font-semibold text-secondary ring-1 ring-secondary/20">تم حفظ إجاباتك</span>}
-                {saveStatus === 'error' && <span className="rounded-xl bg-error-soft px-4 py-2 text-sm font-semibold text-error ring-1 ring-error/20">فشل الحفظ التلقائي</span>}
+                {saveStatus === 'saved' && <span className="rounded-xl bg-secondary-soft px-4 py-2 text-sm font-semibold text-secondary ring-1 ring-secondary/20">تم الحفظ</span>}
+                {saveStatus === 'error' && <span className="rounded-xl bg-error-soft px-4 py-2 text-sm font-semibold text-error ring-1 ring-error/20">فشل الحفظ</span>}
               </>
-            )}
-            {isReview && (
-              <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">
-                وضع العرض — لا يُعرض التصحيح
-              </span>
             )}
           </div>
           <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
@@ -392,7 +388,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                     const a = answers[q.id] ?? {}
                     const rev = reviewAnswers[q.id]
 
-                    // في المراجعة: نعرض إجابته فقط بدون أي تمييز أو كشف
                     const pickedOptionId = isReview ? (rev?.option_id ?? null) : (a.optionId ?? null)
                     const pickedTf = isReview ? (rev?.text_answer ?? null) : (a.tf ?? null)
                     const essayText = isReview ? (rev?.text_answer ?? '') : (a.text ?? '')
@@ -427,7 +422,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
                         {q.type === 'tf' && (
                           <div className="mt-3 grid grid-cols-2 gap-3">
-                            {[{ v: 'true', l: 'صح ✓' }, { v: 'false', l: 'خطأ ✗' }].map((c) => {
+                            {[{ v: 'true', l: 'صح' }, { v: 'false', l: 'خطأ' }].map((c) => {
                               const checked = pickedTf === c.v
                               return (
                                 <label key={c.v} className={
@@ -466,17 +461,17 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
         {isReview && (
           <div className="rounded-2xl border border-light-blue bg-bg p-4 text-sm text-ink-muted">
-            هذه إجاباتك كما سلّمتها. لمعرفة الدرجة النهائية، انتقل إلى تبويب <b>«درجاتي»</b>.
+            هذه إجاباتك كما سلّمتها. لطلب إعادة، ارجع لقائمة الاختبارات.
           </div>
         )}
 
         {!isReview && (
           <>
             <div className="rounded-2xl border border-light-blue bg-primary-soft/40 p-4 text-sm text-ink">
-              <b>ملاحظة:</b> يُحفظ تقدمك تلقائيًا. عند الضغط على «تسليم» لن تستطيع التعديل إلا بطلب إعادة من الأستاذ.
+              <b>ملاحظة:</b> يمكنك تعديل إجاباتك في أي وقت قبل أن يصحح الأستاذ.
             </div>
             <button className={btn + ' w-full py-4 text-lg'} onClick={() => void submitFinal()} disabled={busy || answered === 0}>
-              {busy ? 'جارٍ الإرسال...' : answered === 0 ? 'أجب على سؤال واحد على الأقل' : `تسليم الإجابات (${answered} / ${questions.length})`}
+              {busy ? 'جارٍ الحفظ...' : answered === 0 ? 'أجب على سؤال واحد على الأقل' : `حفظ الإجابات (${answered} / ${questions.length})`}
             </button>
           </>
         )}
@@ -520,15 +515,14 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                       {w ? `بنك أسئلة الأسبوع ${w.number}` : ''}
                     </div>
                     <div className="mt-1 text-base text-ink">{a.title}</div>
-                    {isSubmitted && at && (
+                    {isSubmitted && (
                       <div className="mt-2 text-sm text-ink-muted">
-                        الدرجة الآلية: <b className="text-secondary">{at.auto_score}</b> — <b className="text-warning">بانتظار تصحيح الأستاذ</b>
+                        <b className="text-warning">بانتظار التصحيح</b> — يمكنك التعديل حتى يصحح الأستاذ.
                       </div>
                     )}
                     {isGraded && at && (
                       <div className="mt-2 text-sm text-ink-muted">
-                        الدرجة الآلية: <b className="text-secondary">{at.auto_score}</b>
-                        {at.manual_score !== null && <> — النهائية: <b className="text-secondary">{at.auto_score + at.manual_score}</b></>}
+                        النتيجة النهائية: <b className="text-secondary">{at.auto_score + (at.manual_score ?? 0)}</b>
                       </div>
                     )}
                     {isDraft && (
@@ -554,14 +548,14 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                     {isDraft && (
                       <>
                         <button className={btn} onClick={() => void start(a)}>متابعة</button>
-                        <button className={btnDanger} onClick={() => void retakeMyself(a)} disabled={busy}>إعادة الاختبار</button>
+                        <button className={btnDanger} onClick={() => void retakeMyself(a)} disabled={busy}>إعادة</button>
                       </>
                     )}
 
                     {isSubmitted && (
                       <>
-                        <button className={btnOutline} onClick={() => void start(a)}>عرض إجاباتي</button>
-                        <button className={btnDanger} onClick={() => void retakeMyself(a)} disabled={busy}>إعادة الاختبار</button>
+                        <button className={btn} onClick={() => void start(a)}>تعديل الإجابات</button>
+                        <button className={btnDanger} onClick={() => void retakeMyself(a)} disabled={busy}>إعادة</button>
                       </>
                     )}
 
