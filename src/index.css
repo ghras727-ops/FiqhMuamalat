@@ -1,29 +1,98 @@
-/* ============ تقرير A4 للطباعة ============ */
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+
+  --color-primary: #0b6cb3;
+  --color-primary-hover: #095a96;
+  --color-primary-active: #074a7b;
+  --color-primary-soft: #e6f2fa;
+
+  --color-secondary: #198b48;
+  --color-secondary-hover: #147339;
+  --color-secondary-active: #105c2e;
+  --color-secondary-soft: #e8f5ed;
+
+  --color-accent: #49cef3;
+  --color-accent-soft: #95d4ed;
+
+  --color-success: #198b48;
+  --color-error: #d74050;
+  --color-error-soft: #fbeaec;
+  --color-warning: #dce271;
+  --color-warning-soft: #f7f9dc;
+
+  --color-bg: #f7fbfd;
+  --color-surface: #ffffff;
+  --color-light-blue: #d6e4ec;
+  --color-ink: #123a2e;
+  --color-ink-muted: #4b5d63;
+}
+
+html {
+  direction: rtl;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* ============================================================
+   تقرير A4 — CSS الطباعة
+   ============================================================ */
 @media print {
   @page {
     size: A4 portrait;
-    margin: 0;
+    margin: 10mm;
   }
-  body {
-    background: white !important;
+
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
+
   body * {
-    visibility: hidden;
+    visibility: hidden !important;
   }
+
   .print-area,
   .print-area * {
-    visibility: visible;
+    visibility: visible !important;
   }
+
   .print-area {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: white;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    z-index: 99999 !important;
   }
-  .no-print {
+
+  .no-print,
+  .no-print * {
     display: none !important;
+    visibility: hidden !important;
+  }
+
+  header, footer {
+    page-break-inside: avoid !important;
+  }
+
+  table {
+    page-break-inside: auto !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group !important;
   }
 }
