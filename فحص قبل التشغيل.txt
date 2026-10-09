@@ -1,0 +1,6 @@
+في 
+powershell
+
+
+cd D:\FiqhMuamalat
+.\Push.ps1 "وصف مختصر للتعديل"
