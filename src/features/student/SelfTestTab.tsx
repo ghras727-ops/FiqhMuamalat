@@ -24,11 +24,19 @@ const TYPE_LABEL: Record<QType, string> = {
   essay_smart: 'مقالي ذكي', essay_reasoning: 'مقالي استدلال وفهم',
 }
 const TYPE_ORDER: QType[] = ['mcq', 'tf', 'essay_smart', 'essay_reasoning']
-const TYPE_STYLE: Record<QType, { headerBg: string; headerText: string; badgeBg: string }> = {
-  mcq:             { headerBg: 'border-s-primary',   headerText: 'text-ink-muted', badgeBg: 'bg-primary-soft text-primary border-primary/20' },
-  tf:              { headerBg: 'border-s-secondary', headerText: 'text-ink-muted', badgeBg: 'bg-secondary-soft text-secondary border-secondary/20' },
-  essay_smart:     { headerBg: 'border-s-accent',    headerText: 'text-ink-muted', badgeBg: 'bg-accent-soft/30 text-primary border-accent/50' },
-  essay_reasoning: { headerBg: 'border-s-ink',       headerText: 'text-ink-muted', badgeBg: 'bg-ink/5 text-ink border-ink/20' },
+
+interface TypeStyle {
+  headerBg: string
+  headerText: string
+  badgeBg: string
+  barBg: string
+  emoji: string
+}
+const TYPE_STYLE: Record<QType, TypeStyle> = {
+  mcq:             { headerBg: 'border-s-primary',   headerText: 'text-primary',     badgeBg: 'bg-primary-soft text-primary border-primary/30',     barBg: 'bg-primary',   emoji: '🟦' },
+  tf:              { headerBg: 'border-s-secondary', headerText: 'text-secondary',   badgeBg: 'bg-secondary-soft text-secondary border-secondary/30', barBg: 'bg-secondary', emoji: '🟩' },
+  essay_smart:     { headerBg: 'border-s-accent',    headerText: 'text-primary',     badgeBg: 'bg-accent-soft/50 text-primary border-accent/40',     barBg: 'bg-accent',    emoji: '🟪' },
+  essay_reasoning: { headerBg: 'border-s-ink',       headerText: 'text-ink',         badgeBg: 'bg-ink/10 text-ink border-ink/20',                     barBg: 'bg-ink',       emoji: '🟨' },
 }
 
 export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () => void } = {}) {
@@ -52,13 +60,15 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [result, setResult] = useState<{ auto: number; total: number; answered: number } | null>(null)
   const [open, setOpen] = useState<Record<QType, boolean>>({
-    mcq: false, tf: false, essay_smart: false, essay_reasoning: false,
+    mcq: true, tf: true, essay_smart: true, essay_reasoning: true,
   })
 
   const [retakeModal, setRetakeModal] = useState<{ activityId: string; attemptId: string; activityTitle: string } | null>(null)
   const [retakeReason, setRetakeReason] = useState('')
   const [retakeError, setRetakeError] = useState<string | null>(null)
   const [retakeSubmitting, setRetakeSubmitting] = useState(false)
+
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
   const load = useCallback(async () => {
     if (!supabase) return
@@ -95,25 +105,21 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
   const refresh = useCallback(async () => {
     setRefreshing(true)
     await load()
-    // إعادة تحميل حالة النشاط الحالي إن كنا داخله
     if (running && supabase) {
       const fresh = (await supabase.from('attempts')
         .select('id,activity_id,auto_score,manual_score,status,submitted_at')
         .eq('activity_id', running.id)
         .maybeSingle()).data as Attempt | null
-      if (fresh) {
-        // لو الحالة تغيرت من submitted إلى graded → نُحدّث الواجهة للمراجعة
-        if (fresh.status === 'graded' && mode === 'edit') {
-          const stored = await supabase.from('answers')
-            .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
-            .eq('attempt_id', fresh.id)
-          const map: Record<string, AnswerRow> = {}
-          for (const row of (stored.data ?? []) as AnswerRow[]) map[row.question_id] = row
-          setReviewAnswers(map)
-          setMode('review')
-          setAnswers({})
-          await loadNotes(running.id)
-        }
+      if (fresh && fresh.status === 'graded' && mode === 'edit') {
+        const stored = await supabase.from('answers')
+          .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
+          .eq('attempt_id', fresh.id)
+        const map: Record<string, AnswerRow> = {}
+        for (const row of (stored.data ?? []) as AnswerRow[]) map[row.question_id] = row
+        setReviewAnswers(map)
+        setMode('review')
+        setAnswers({})
+        await loadNotes(running.id)
       }
     }
     setRefreshing(false)
@@ -159,7 +165,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     setOptions(data.options)
     setAq(data.aq)
     setResult(null)
-    setOpen({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
+    setOpen({ mcq: true, tf: true, essay_smart: true, essay_reasoning: true })
 
     const existing = attempts[act.id]
     if (existing) {
@@ -199,16 +205,27 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     setRunning(act)
   }
 
-  function countAnswered(): number {
-    let n = 0
+  function countAnsweredByType(): Record<QType, { answered: number; total: number }> {
+    const result: Record<QType, { answered: number; total: number }> = {
+      mcq: { answered: 0, total: 0 },
+      tf: { answered: 0, total: 0 },
+      essay_smart: { answered: 0, total: 0 },
+      essay_reasoning: { answered: 0, total: 0 },
+    }
     for (const q of questions) {
+      result[q.type].total++
       const a = answers[q.id]
       if (!a) continue
-      if (q.type === 'mcq' && a.optionId) n++
-      else if (q.type === 'tf' && a.tf) n++
-      else if (q.type.startsWith('essay') && (a.text ?? '').trim()) n++
+      if (q.type === 'mcq' && a.optionId) result[q.type].answered++
+      else if (q.type === 'tf' && a.tf) result[q.type].answered++
+      else if (q.type.startsWith('essay') && (a.text ?? '').trim()) result[q.type].answered++
     }
-    return n
+    return result
+  }
+
+  function countAnswered(): number {
+    const stats = countAnsweredByType()
+    return TYPE_ORDER.reduce((s, t) => s + stats[t].answered, 0)
   }
 
   async function saveDraft(answersState: Record<string, AnswerState>) {
@@ -239,6 +256,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     if (!supabase || !running) return
     const answeredCount = countAnswered()
     if (answeredCount === 0) { setError('أجب على سؤال واحد على الأقل.'); return }
+    setShowSubmitConfirm(false)
     setBusy(true); setError(null)
     const list: { question_id: string; option_id?: string; text_answer?: string }[] = []
     for (const q of questions) {
@@ -344,6 +362,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     const totalScore = questions.reduce((s, q) => s + q.score, 0)
     const answered = countAnswered()
     const isReview = mode === 'review'
+    const stats = countAnsweredByType()
 
     return (
       <div className="space-y-5">
@@ -373,21 +392,49 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
               </button>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">
-              {isReview ? `مجاب: ${Object.keys(reviewAnswers).length} / ${questions.length}` : `أجبت: ${answered} / ${questions.length}`}
-            </span>
-            {!isReview && (
-              <>
-                <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">
-                  الدرجة العظمى: {totalScore}
-                </span>
-                {saveStatus === 'saving' && <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">جارٍ الحفظ...</span>}
-                {saveStatus === 'saved' && <span className="rounded-xl bg-secondary-soft px-4 py-2 text-sm font-semibold text-secondary ring-1 ring-secondary/20">تم الحفظ</span>}
-                {saveStatus === 'error' && <span className="rounded-xl bg-error-soft px-4 py-2 text-sm font-semibold text-error ring-1 ring-error/20">فشل الحفظ</span>}
-              </>
-            )}
-          </div>
+
+          {/* شريط تقدم شامل + عدادات لكل نوع */}
+          {!isReview && (
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center justify-between text-sm text-white/90">
+                <span>إجمالي التقدم</span>
+                <span>{answered} / {questions.length} مُجاب</span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full bg-white/20">
+                <div
+                  className="h-full rounded-full bg-gradient-to-l from-accent to-secondary transition-all"
+                  style={{ width: questions.length === 0 ? '0%' : `${Math.round((answered / questions.length) * 100)}%` }}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                {TYPE_ORDER.map((t) => (
+                  <div key={t} className="rounded-lg bg-white/10 px-3 py-2 text-xs backdrop-blur">
+                    <div className="flex items-center justify-between">
+                      <span>{TYPE_STYLE[t].emoji} {TYPE_LABEL[t]}</span>
+                      <span className="font-bold">{stats[t].answered} / {stats[t].total}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isReview && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <span className="rounded-xl bg-white/15 px-4 py-2 text-sm text-white ring-1 ring-white/20">
+                مجاب: {Object.keys(reviewAnswers).length} / {questions.length}
+              </span>
+            </div>
+          )}
+
+          {!isReview && saveStatus !== 'idle' && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {saveStatus === 'saving' && <span className="rounded-xl bg-white/15 px-4 py-1.5 text-xs text-white ring-1 ring-white/20">جارٍ الحفظ...</span>}
+              {saveStatus === 'saved' && <span className="rounded-xl bg-secondary px-4 py-1.5 text-xs font-semibold text-white">✓ تم الحفظ</span>}
+              {saveStatus === 'error' && <span className="rounded-xl bg-error px-4 py-1.5 text-xs font-semibold text-white">✗ فشل الحفظ</span>}
+            </div>
+          )}
+
           <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
             <span className="flex-[3] bg-accent" />
             <span className="flex-1 bg-secondary" />
@@ -404,25 +451,44 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
           }, 0)
           const isOpen = open[t]
           const style = TYPE_STYLE[t]
+          const answeredInGroup = stats[t].answered
+          const totalInGroup = stats[t].total
+          const percent = totalInGroup === 0 ? 0 : Math.round((answeredInGroup / totalInGroup) * 100)
+
           return (
-            <section key={t} className={`overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-white shadow-sm ${style.headerBg}`}>
+            <section key={t} className={`overflow-hidden rounded-2xl border-2 border-light-blue border-s-4 bg-white shadow-sm ${style.headerBg}`}>
               <button
-                className="flex w-full items-center justify-between gap-4 bg-white px-5 py-4 text-start hover:bg-primary-soft"
+                className="flex w-full items-center justify-between gap-4 bg-white px-5 py-4 text-start transition hover:bg-primary-soft"
                 onClick={() => setOpen({ ...open, [t]: !isOpen })}
               >
-                <div className="flex items-center gap-4">
-                  <span className={`rounded-xl border px-4 py-1.5 text-lg font-bold ${style.badgeBg}`}>
-                    {TYPE_LABEL[t]}
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className={`rounded-xl border-2 px-4 py-1.5 text-lg font-bold ${style.badgeBg}`}>
+                    {style.emoji} {TYPE_LABEL[t]}
                   </span>
                   <span className={`text-base font-semibold ${style.headerText}`}>
-                    {items.length} سؤال — {groupScore} درجة
+                    {groupScore} درجة
                   </span>
                 </div>
-                <span className={`text-2xl ${style.headerText} transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                <div className="flex items-center gap-4">
+                  {!isReview && (
+                    <span className={`rounded-lg border-2 px-3 py-1 text-sm font-bold ${style.badgeBg}`}>
+                      {answeredInGroup} / {totalInGroup} مُجاب
+                    </span>
+                  )}
+                  <span className={`text-3xl ${style.headerText} transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                </div>
               </button>
 
+              {!isReview && (
+                <div className="px-5">
+                  <div className="h-2 overflow-hidden rounded-full bg-bg">
+                    <div className={`h-full rounded-full transition-all ${style.barBg}`} style={{ width: `${percent}%` }} />
+                  </div>
+                </div>
+              )}
+
               {isOpen && (
-                <ul className="space-y-3 border-t border-light-blue bg-bg p-4">
+                <ul className="mt-4 space-y-3 border-t-2 border-light-blue bg-bg p-4">
                   {items.map((link, i) => {
                     const q = questions.find((x) => x.id === link.question_id)
                     if (!q) return null
@@ -538,10 +604,18 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
         {!isReview && (
           <>
             <div className="rounded-2xl border border-light-blue bg-primary-soft/40 p-4 text-sm text-ink">
-              <b>ملاحظة:</b> يمكنك تعديل إجاباتك في أي وقت قبل أن يصحح الأستاذ.
+              <b>ملاحظة:</b> يمكنك تعديل إجاباتك في أي وقت قبل أن يصحح الأستاذ. عند الضغط على «تسليم» ستظهر لك خلاصة كاملة قبل التأكيد.
             </div>
-            <button className={btn + ' w-full py-4 text-lg'} onClick={() => void submitFinal()} disabled={busy || answered === 0}>
-              {busy ? 'جارٍ الحفظ...' : answered === 0 ? 'أجب على سؤال واحد على الأقل' : `حفظ الإجابات (${answered} / ${questions.length})`}
+            <button
+              className={btn + ' w-full py-4 text-lg'}
+              onClick={() => setShowSubmitConfirm(true)}
+              disabled={busy || answered === 0}
+            >
+              {busy
+                ? 'جارٍ الحفظ...'
+                : answered === 0
+                  ? 'أجب على سؤال واحد على الأقل'
+                  : `مراجعة الإجابات وتسليم (${answered} / ${questions.length})`}
             </button>
           </>
         )}
@@ -572,6 +646,70 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                   طلب إعادة
                 </button>
               )}
+            </div>
+          )
+        })()}
+
+        {/* نافذة تأكيد التسليم */}
+        {showSubmitConfirm && (() => {
+          const totalAnswered = countAnswered()
+          const totalRemaining = questions.length - totalAnswered
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !busy && setShowSubmitConfirm(false)}>
+              <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-2xl font-bold text-primary">📋 خلاصة إجاباتك</h3>
+                <p className="mt-1 text-sm text-ink-muted">راجع إجاباتك قبل التسليم النهائي.</p>
+
+                <div className="mt-5 space-y-3">
+                  {TYPE_ORDER.map((t) => {
+                    const s = stats[t]
+                    if (s.total === 0) return null
+                    const remaining = s.total - s.answered
+                    const complete = remaining === 0
+                    return (
+                      <div key={t} className={`rounded-xl border-2 p-3 ${complete ? 'border-secondary/40 bg-secondary-soft/40' : 'border-warning/40 bg-warning-soft/40'}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-ink">
+                            {TYPE_STYLE[t].emoji} {TYPE_LABEL[t]}
+                          </span>
+                          <span className={`text-sm font-bold ${complete ? 'text-secondary' : 'text-ink'}`}>
+                            {s.answered} / {s.total} مُجاب
+                          </span>
+                        </div>
+                        {!complete && (
+                          <div className="mt-1 text-xs text-ink-muted">
+                            ⚠️ متبقٍ: {remaining} سؤال{remaining > 1 ? '' : ''}
+                          </div>
+                        )}
+                        {complete && (
+                          <div className="mt-1 text-xs font-semibold text-secondary">
+                            ✓ أكملت هذا القسم
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {totalRemaining > 0 ? (
+                  <div className="mt-4 rounded-xl border-2 border-warning bg-warning-soft p-3 text-sm text-ink">
+                    <b>⚠️ تنبيه:</b> لم تُجب على <b>{totalRemaining}</b> سؤالًا. الأسئلة غير المُجابة لن تُحسب لك.
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl border-2 border-secondary bg-secondary-soft p-3 text-sm font-semibold text-secondary">
+                    🎉 أكملت جميع الأسئلة. بالتوفيق!
+                  </div>
+                )}
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button className={btn} onClick={() => void submitFinal()} disabled={busy}>
+                    {busy ? 'جارٍ التسليم...' : 'تسليم الآن'}
+                  </button>
+                  <button className={btnOutline} onClick={() => setShowSubmitConfirm(false)} disabled={busy}>
+                    متابعة الإجابة
+                  </button>
+                </div>
+              </div>
             </div>
           )
         })()}
