@@ -127,8 +127,26 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
         .print-area, .print-area * { font-family: "Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif; }
-        @page { size: A4; margin: 0; }
-        @media print { .print-area { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+        @page { size: A4 portrait; margin: 0; }
+        @media print {
+          html, body { margin: 0 !important; padding: 0 !important; height: auto !important; background: white !important; }
+          .print-area {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            margin: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            /* أقل من 297mm بهامش أمان حتى لا يُنتج المتصفح صفحة ثانية */
+            height: 295mm !important;
+            max-height: 295mm !important;
+            overflow: hidden !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            break-after: avoid-page !important;
+            page-break-after: avoid !important;
+          }
+        }
       `}</style>
 
       {/* شريط الهوية العلوي */}
@@ -263,7 +281,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
             }}
           >
             <Field label="الاسم الكامل" bold>{student.full_name}</Field>
-            <Field label="الرقم الجامعي" divider>
+            <Field label="الرقم المعرّف" divider>
               <span dir="ltr" style={{ fontFamily: 'monospace', fontWeight: 800, unicodeBidi: 'isolate' }}>
                 {student.student_no}
               </span>
