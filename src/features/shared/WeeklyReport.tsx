@@ -144,7 +144,8 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
           .print-area {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
-            position: absolute !important;
+            /* fixed: يثبّت الورقة على زاوية الصفحة مهما كانت حاويات الواجهة حولها */
+            position: fixed !important;
             top: 0 !important;
             left: 0 !important;
             right: auto !important;
@@ -159,10 +160,13 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
             height: 295mm !important;
             max-height: 295mm !important;
             overflow: hidden !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-            break-after: avoid-page !important;
-            page-break-after: avoid !important;
+          }
+          /* ورقة واحدة فقط: لا حاجة لقواعد منع التقسيم داخلها (كروم قد يحذف أو يزيح عناصر بسببها) */
+          .print-area, .print-area * {
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+            break-before: auto !important;
+            break-after: auto !important;
           }
         }
       `}</style>
@@ -477,7 +481,7 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
         )}
 
         {/* ================= التذييل + التوقيع ================= */}
-        <footer style={{ marginTop: 'auto', paddingTop: '8px', pageBreakInside: 'avoid' }}>
+        <footer style={{ marginTop: 'auto', paddingTop: '8px', flexShrink: 0 }}>
           <div
             style={{
               padding: '6px 10px',
@@ -485,10 +489,11 @@ export default function WeeklyReport({ snapshot, reportNumber, approvedAt, teach
               border: `1px solid ${C.line}`,
               borderRadius: '8px',
               textAlign: 'center',
-              fontSize: '12.5px',
+              fontSize: '12px',
               fontWeight: 700,
+              lineHeight: 1.6,
               color: C.blue,
-              whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}
           >
             مقرر المستوى الثاني - قسم الشريعة والقانون - فقه المعاملات (1) - مدرس المقرر: {TEACHER}
@@ -605,7 +610,7 @@ const th: React.CSSProperties = {
 
 const td: React.CSSProperties = {
   padding: '5px 8px',
-  height: '32px',
+  height: '30px',
   color: C.ink,
   borderBottom: `1px solid ${C.line}`,
   verticalAlign: 'middle',
