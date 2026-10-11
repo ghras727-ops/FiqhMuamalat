@@ -217,7 +217,12 @@ function LessonView({ lesson, materials, viewUrls, downloadUrls, onOpen }: {
       >
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xl text-primary">{open ? '▼' : '▶'}</span>
-          <span className="text-base font-bold text-primary">📖 {lesson.title}</span>
+          <span className="text-base font-bold text-primary">
+            {(() => {
+              const isDefaultTitle = !lesson.title || lesson.title === `الدرس ${lesson.position}`
+              return `📖 ${isDefaultTitle ? `الدرس ${lesson.position}` : `الدرس ${lesson.position}: ${lesson.title}`}`
+            })()}
+          </span>
           <span className="rounded-lg bg-bg px-2 py-0.5 text-xs text-ink-muted">
             {totalCount} مادة
           </span>
