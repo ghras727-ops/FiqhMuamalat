@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../app/auth-context'
 import { supabase } from '../../lib/supabase'
 
@@ -15,57 +15,34 @@ type PostKind = 'announcement' | 'post' | 'image' | 'file' | 'video' | 'link'
 type MaterialKind = 'document' | 'slides' | 'link'
 
 interface PostRow {
-  id: string
-  author_id: string
-  kind: PostKind
-  title: string | null
-  body: string | null
-  attachment_path: string | null
-  external_url: string | null
-  pinned: boolean
-  hidden: boolean
-  allow_comments: boolean
-  show_names: boolean
-  linked_type: string | null
-  linked_id: string | null
-  created_at: string
-  updated_at: string | null
+  id: string; author_id: string; kind: PostKind
+  title: string | null; body: string | null
+  attachment_path: string | null; external_url: string | null
+  pinned: boolean; hidden: boolean
+  allow_comments: boolean; show_names: boolean
+  linked_type: string | null; linked_id: string | null
+  created_at: string; updated_at: string | null
 }
 
 interface CommentRow {
-  id: string
-  post_id: string
-  author_id: string
-  text: string
-  hidden: boolean
-  created_at: string
+  id: string; post_id: string; author_id: string
+  text: string; hidden: boolean; created_at: string
 }
 
 interface ProfileLite { id: string; full_name: string; role: 'teacher' | 'student' }
 
 interface MaterialRow {
-  id: string
-  week_id: string
-  lesson_id: string | null
-  title: string
-  kind: MaterialKind
-  view_path: string | null
-  download_path: string | null
-  url: string | null
+  id: string; week_id: string; lesson_id: string | null
+  title: string; kind: MaterialKind
+  view_path: string | null; download_path: string | null; url: string | null
 }
-
 interface MaterialWithCtx extends MaterialRow {
-  week_number: number
-  lesson_title: string | null
+  week_number: number; lesson_title: string | null
 }
 
 interface RankRow { student_id: string; full_name: string; student_no: string | null; earned: number; possible: number; percent: number }
 interface BestRow { activity_title: string; student_name: string; percent: number }
-
-interface StatsRow {
-  students: number; lessons: number; materials: number
-  weeks: number; questions: number; attempts: number
-}
+interface StatsRow { students: number; lessons: number; materials: number; weeks: number; questions: number; attempts: number }
 
 const KIND_LABEL: Record<PostKind, string> = {
   announcement: 'إعلان', post: 'منشور', image: 'صورة',
@@ -90,8 +67,7 @@ function extOf(name: string): string {
 }
 
 function timeAgo(iso: string): string {
-  const d = new Date(iso).getTime()
-  const diff = (Date.now() - d) / 1000
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000
   if (diff < 60) return 'الآن'
   if (diff < 3600) return `قبل ${Math.floor(diff / 60)} دقيقة`
   if (diff < 86400) return `قبل ${Math.floor(diff / 3600)} ساعة`
@@ -301,10 +277,10 @@ export default function FeedTab() {
   const meRank = ranking.findIndex((r) => r.student_id === me) + 1
   const meRow = ranking.find((r) => r.student_id === me)
   const classAvg = ranking.length === 0 ? 0 : Math.round(ranking.reduce((t, r) => t + r.percent, 0) / ranking.length)
-  const top = ranking[0]
+  const topThree = ranking.slice(0, 3)
 
+  // بطاقات إحصائية (بدون "أفضل طالب" — له بطاقة خاصة أعلى)
   const statCards: { label: string; value: string; sub: string; tone: 'primary' | 'secondary' | 'accent' | 'warning' | 'error' | 'ink' }[] = [
-    { label: 'أفضل طالب', value: top?.full_name ?? '—', sub: top ? `${top.percent}%` : 'لا بيانات', tone: 'primary' },
     { label: 'أفضل نشاط', value: best ? `${best.percent}%` : '—', sub: best?.student_name ?? '—', tone: 'secondary' },
     { label: 'متوسط الصف', value: `${classAvg}%`, sub: `${ranking.length} طالبًا`, tone: 'accent' },
     { label: 'ترتيبك', value: meRank > 0 ? `#${meRank}` : '—', sub: meRow ? `${meRow.percent}%` : '—', tone: 'warning' },
@@ -340,8 +316,77 @@ export default function FeedTab() {
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-sm font-semibold text-error">{error}</p>}
 
-      {/* البطاقات الإحصائية — بدون أيقونات */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      {/* 🏆 بطاقة صدارة المنصة — الأوائل الثلاثة */}
+      {topThree.length > 0 && (
+        <section className="relative overflow-hidden rounded-2xl border-2 border-warning bg-gradient-to-b from-warning-soft/60 to-white p-5 shadow-md">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-2xl font-bold text-primary">
+              <span className="text-3xl">🏆</span>
+              صدارة المنصة
+            </h3>
+            <span className="rounded-lg bg-white px-3 py-1 text-xs font-semibold text-ink-muted ring-1 ring-warning">
+              أعلى 3 نتائج — حسب النسبة المئوية
+            </span>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {[0, 1, 2].map((idx) => {
+              const student = topThree[idx]
+              const rank = idx + 1
+              const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
+              const rankLabel = rank === 1 ? 'الأول' : rank === 2 ? 'الثاني' : 'الثالث'
+              const isMe = student?.student_id === me
+              const cardTone =
+                rank === 1 ? 'border-warning bg-gradient-to-b from-yellow-50 to-white'
+                : rank === 2 ? 'border-light-blue bg-gradient-to-b from-slate-50 to-white'
+                : 'border-accent/60 bg-gradient-to-b from-orange-50 to-white'
+              const medalBg =
+                rank === 1 ? 'bg-warning/30'
+                : rank === 2 ? 'bg-light-blue/40'
+                : 'bg-accent/20'
+              return (
+                <div
+                  key={rank}
+                  className={`relative rounded-2xl border-2 ${cardTone} p-4 text-center shadow-sm ${isMe ? 'ring-2 ring-primary/50' : ''}`}
+                >
+                  <div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full ${medalBg} text-4xl shadow-inner`}>
+                    {medal}
+                  </div>
+                  <div className="mt-2 text-sm font-bold text-ink-muted">{rankLabel}</div>
+                  {student ? (
+                    <>
+                      <div className="mt-2 truncate text-base font-bold text-ink" title={student.full_name}>
+                        {student.full_name}
+                      </div>
+                      {student.student_no && (
+                        <div className="mt-0.5 font-mono text-xs text-ink-muted" dir="ltr">
+                          {student.student_no}
+                        </div>
+                      )}
+                      <div className="mt-2 text-3xl font-bold text-primary" dir="ltr">
+                        {student.percent}%
+                      </div>
+                      <div className="mt-1 text-xs text-ink-muted" dir="ltr">
+                        {student.earned.toFixed(1)} / {student.possible}
+                      </div>
+                      {isMe && (
+                        <div className="mt-2 inline-block rounded-full bg-primary px-3 py-0.5 text-xs font-bold text-white">
+                          أنت
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="mt-4 text-sm text-ink-muted">— لا طالب —</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* البطاقات الإحصائية الخمس الأخرى */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         {statCards.map((s) => (
           <StatCard key={s.label} {...s} />
         ))}
@@ -388,7 +433,9 @@ export default function FeedTab() {
   )
 }
 
-/* البطاقات الإحصائية — بدون أيقونات */
+/* ============================================================
+   بطاقة إحصائية
+   ============================================================ */
 const TONE_STYLES: Record<string, { bar: string; bg: string; text: string; sub: string }> = {
   primary:   { bar: 'border-s-primary',   bg: 'from-primary-soft/60 to-white',   text: 'text-primary',   sub: 'text-ink-muted' },
   secondary: { bar: 'border-s-secondary', bg: 'from-secondary-soft/60 to-white', text: 'text-secondary', sub: 'text-ink-muted' },
@@ -411,6 +458,9 @@ function StatCard({ label, value, sub, tone }: {
   )
 }
 
+/* ============================================================
+   بطاقة منشور
+   ============================================================ */
 function PostCard({
   post, authorName, authorRole, attachmentUrl, comments, likes, me, isTeacher, profilesMap, currentProfile,
   linkedMaterial, onOpenMaterial, onLike, onComment, onDeleteComment, onPin, onHide, onDelete,
@@ -659,6 +709,9 @@ function PostCard({
   )
 }
 
+/* ============================================================
+   نموذج إضافة منشور
+   ============================================================ */
 function AddPostForm({ materials, onCreated, onCancel }: {
   materials: MaterialWithCtx[]
   onCreated: () => void

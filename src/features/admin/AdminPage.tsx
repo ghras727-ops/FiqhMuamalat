@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import GradesTab from './GradesTab'
 import HomeTab from './HomeTab'
@@ -24,18 +24,34 @@ const TABS: ShellTab[] = [
 
 export default function AdminPage() {
   const [tab, setTab] = useState('home')
+  const [mounted, setMounted] = useState<string[]>(['home'])
+
+  // عند التنقل: أضف التبويب إلى قائمة المثبّتة (لا يُزال)
+  useEffect(() => {
+    setMounted((prev) => (prev.includes(tab) ? prev : [...prev, tab]))
+  }, [tab])
+
+  const panels: { key: string; node: ReactNode }[] = [
+    { key: 'home', node: <HomeTab /> },
+    { key: 'posts', node: <PostsTab /> },
+    { key: 'students', node: <StudentsTab /> },
+    { key: 'weeks', node: <WeeksTab /> },
+    { key: 'materials', node: <MaterialsTab /> },
+    { key: 'bank', node: <QuizSetsTab /> },
+    { key: 'grades', node: <GradesTab /> },
+    { key: 'reports', node: <ReportsTab /> },
+    { key: 'db', node: <TablesTab /> },
+  ]
 
   return (
     <AppShell tabs={TABS} current={tab} onChange={setTab}>
-      {tab === 'home' && <HomeTab />}
-      {tab === 'posts' && <PostsTab />}
-      {tab === 'students' && <StudentsTab />}
-      {tab === 'weeks' && <WeeksTab />}
-      {tab === 'materials' && <MaterialsTab />}
-      {tab === 'bank' && <QuizSetsTab />}
-      {tab === 'grades' && <GradesTab />}
-      {tab === 'reports' && <ReportsTab />}
-      {tab === 'db' && <TablesTab />}
+      {panels.map(({ key, node }) =>
+        mounted.includes(key) ? (
+          <div key={key} style={{ display: tab === key ? 'block' : 'none' }}>
+            {node}
+          </div>
+        ) : null
+      )}
     </AppShell>
   )
 }

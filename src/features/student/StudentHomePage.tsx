@@ -62,6 +62,12 @@ export default function StudentHomePage() {
   const { profile } = useAuth()
   const [tab, setTab] = useState('feed')
 
+  // التبويبات التي فُتحت مرة على الأقل — نُبقيها في الذاكرة
+  const [mounted, setMounted] = useState<string[]>(['feed'])
+  useEffect(() => {
+    setMounted((prev) => (prev.includes(tab) ? prev : [...prev, tab]))
+  }, [tab])
+
   const [activities, setActivities] = useState<ActivityRow[]>([])
   const [attempts, setAttempts] = useState<Record<string, AttemptRow>>({})
   const [loading, setLoading] = useState(true)
@@ -144,7 +150,6 @@ export default function StudentHomePage() {
     setViewingReport(r)
     if (!r.seen_at && supabase) {
       await supabase.rpc('mark_report_seen', { p_report_id: r.id })
-      // حدّث محليًا بلا إعادة تحميل
       setReports((prev) => prev.map((x) => x.id === r.id ? { ...x, seen_at: new Date().toISOString() } : x))
     }
   }
@@ -157,6 +162,8 @@ export default function StudentHomePage() {
   const gradedCount = activities.filter((a) => attempts[a.id]?.status === 'graded').length
   const unseenReports = reports.filter((r) => !r.seen_at).length
 
+  const show = (key: string) => ({ display: tab === key ? 'block' : 'none' }) as const
+
   return (
     <AppShell tabs={TABS} current={tab} onChange={setTab}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -168,233 +175,250 @@ export default function StudentHomePage() {
         )}
       </div>
 
-      {tab === 'feed' && <FeedTab />}
-      {tab === 'lessons' && <WeekPacksView />}
-      {tab === 'selftest' && <SelfTestTab onAttemptSaved={load} />}
-
-      {tab === 'acts' && (
-        <div className="space-y-4">
-          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-3xl font-bold">أنشطتي</h2>
-                <p className="mt-1 text-base text-white/85">
-                  {doneCount} من {activities.length} نشاطًا مُنجَزًا
-                  {gradedCount > 0 && <> — {gradedCount} مصحّح</>}
-                </p>
-              </div>
-              <button
-                className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
-                onClick={() => void refresh()}
-                disabled={refreshing}
-              >
-                {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}
-              </button>
-            </div>
-            <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
-              <span className="flex-[3] bg-accent" />
-              <span className="flex-1 bg-secondary" />
-              <span className="flex-1 bg-warning" />
-            </div>
-          </section>
-
-          <section className={card}>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-primary">قائمة الأنشطة</h3>
-              <button className={btnOutline} onClick={() => void refresh()} disabled={refreshing}>
-                {refreshing ? '⏳ جارٍ...' : '🔄 تحديث'}
-              </button>
-            </div>
-
-            {loading ? (
-              <p className="mt-4 text-ink-muted">جارٍ التحميل...</p>
-            ) : error ? (
-              <p className="mt-4 rounded-xl bg-error-soft p-3 font-semibold text-error">{error}</p>
-            ) : activities.length === 0 ? (
-              <p className="mt-4 text-ink-muted">لا توجد أنشطة متاحة الآن.</p>
-            ) : (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-light-blue">
-                      <th className={th}>النشاط</th>
-                      <th className={th}>الأسبوع</th>
-                      <th className={th}>الحالة</th>
-                      <th className={th}>إجراء</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activities.map((a) => {
-                      const at = attempts[a.id]
-                      const isDraft = at?.status === 'draft'
-                      const isSubmitted = at?.status === 'submitted'
-                      const isGraded = at?.status === 'graded'
-                      return (
-                        <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
-                          <td className="p-3 text-base font-semibold text-ink">{a.title}</td>
-                          <td className="p-3">الأسبوع {a.week_number}</td>
-                          <td className="p-3">
-                            {isGraded
-                              ? <Tag tone="ok">مصحح ✓</Tag>
-                              : isSubmitted
-                                ? <Tag tone="wait">بانتظار التصحيح</Tag>
-                                : isDraft
-                                  ? <Tag tone="info">قيد الإجابة</Tag>
-                                  : <Tag tone="ok">متاح</Tag>}
-                          </td>
-                          <td className="p-3">
-                            <button className={isGraded ? btnOutline : btn} onClick={() => setTab('selftest')}>
-                              {isGraded ? 'عرض إجاباتي' : isSubmitted ? 'تعديل الإجابات' : isDraft ? 'متابعة' : 'ابدأ'}
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+      {mounted.includes('feed') && (
+        <div style={show('feed')}>
+          <FeedTab />
         </div>
       )}
 
-      {tab === 'grades' && (
-        <div className="space-y-4">
-          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-3xl font-bold">درجاتي</h2>
-                <p className="mt-1 text-base text-white/85">نتائجك في الأنشطة المصححة.</p>
-              </div>
-              <button
-                className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
-                onClick={() => void refresh()}
-                disabled={refreshing}
-              >
-                {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}
-              </button>
-            </div>
-            <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
-              <span className="flex-[3] bg-accent" />
-              <span className="flex-1 bg-secondary" />
-              <span className="flex-1 bg-warning" />
-            </div>
-          </section>
+      {mounted.includes('lessons') && (
+        <div style={show('lessons')}>
+          <WeekPacksView />
+        </div>
+      )}
 
-          {/* قسم التقارير الرسمية */}
-          {reports.length > 0 && (
-            <section className="rounded-2xl border-2 border-accent bg-gradient-to-l from-accent-soft/40 to-white p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+      {mounted.includes('selftest') && (
+        <div style={show('selftest')}>
+          <SelfTestTab onAttemptSaved={load} />
+        </div>
+      )}
+
+      {mounted.includes('acts') && (
+        <div style={show('acts')}>
+          <div className="space-y-4">
+            <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-xl font-bold text-primary">
-                    📄 تقاريري الرسمية {unseenReports > 0 && (
-                      <span className="ms-2 rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">
-                        {unseenReports} جديد
-                      </span>
-                    )}
-                  </h3>
-                  <p className="mt-1 text-sm text-ink-muted">
-                    تقارير أكاديمية معتمدة من مدرس المقرر — يمكنك طباعتها أو حفظها PDF.
+                  <h2 className="text-3xl font-bold">أنشطتي</h2>
+                  <p className="mt-1 text-base text-white/85">
+                    {doneCount} من {activities.length} نشاطًا مُنجَزًا
+                    {gradedCount > 0 && <> — {gradedCount} مصحّح</>}
                   </p>
                 </div>
+                <button
+                  className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
+                  onClick={() => void refresh()}
+                  disabled={refreshing}
+                >
+                  {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}
+                </button>
               </div>
-              <ul className="mt-4 space-y-3">
-                {reports.map((r) => (
-                  <li
-                    key={r.id}
-                    className={
-                      'flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 bg-white p-4 transition hover:shadow-md ' +
-                      (r.seen_at ? 'border-light-blue' : 'border-accent')
-                    }
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-base font-bold text-ink">
-                          {r.type === 'weekly'
-                            ? `تقرير الأسبوع ${r.from_week_number}`
-                            : `تقرير تراكمي — الأسابيع ${r.from_week_number} – ${r.to_week_number}`}
-                        </span>
-                        {!r.seen_at && (
-                          <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">جديد</span>
-                        )}
-                        {r.report_number && (
-                          <span className="rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">
-                            {r.report_number}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 text-xs text-ink-muted">
-                        صدر {timeAgo(r.approved_at)}
-                      </div>
-                    </div>
-                    <button className={btn} onClick={() => void openReport(r)}>
-                      عرض التقرير
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
+                <span className="flex-[3] bg-accent" />
+                <span className="flex-1 bg-secondary" />
+                <span className="flex-1 bg-warning" />
+              </div>
             </section>
-          )}
 
-          <section className={card}>
-            <h3 className="text-lg font-bold text-primary">جدول الدرجات</h3>
-            {loading ? (
-              <p className="mt-4 text-ink-muted">جارٍ التحميل...</p>
-            ) : error ? (
-              <p className="mt-4 rounded-xl bg-error-soft p-3 font-semibold text-error">{error}</p>
-            ) : activities.filter((a) => {
-              const s = attempts[a.id]?.status
-              return s === 'submitted' || s === 'graded'
-            }).length === 0 ? (
-              <p className="mt-4 text-ink-muted">لا نتائج بعد.</p>
-            ) : (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-light-blue">
-                      <th className={th}>النشاط</th>
-                      <th className={th}>الأسبوع</th>
-                      <th className={th}>الدرجة الآلية</th>
-                      <th className={th}>الدرجة اليدوية</th>
-                      <th className={th}>المجموع</th>
-                      <th className={th}>الحالة</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activities
-                      .filter((a) => {
-                        const s = attempts[a.id]?.status
-                        return s === 'submitted' || s === 'graded'
-                      })
-                      .map((a) => {
-                        const at = attempts[a.id]!
-                        const rawTotal = at.auto_score + (at.manual_score ?? 0)
-                        const cappedTotal = Math.min(rawTotal, a.total_possible)
-                        const graded = at.status === 'graded'
+            <section className={card}>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-primary">قائمة الأنشطة</h3>
+                <button className={btnOutline} onClick={() => void refresh()} disabled={refreshing}>
+                  {refreshing ? '⏳ جارٍ...' : '🔄 تحديث'}
+                </button>
+              </div>
+
+              {loading ? (
+                <p className="mt-4 text-ink-muted">جارٍ التحميل...</p>
+              ) : error ? (
+                <p className="mt-4 rounded-xl bg-error-soft p-3 font-semibold text-error">{error}</p>
+              ) : activities.length === 0 ? (
+                <p className="mt-4 text-ink-muted">لا توجد أنشطة متاحة الآن.</p>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-light-blue">
+                        <th className={th}>النشاط</th>
+                        <th className={th}>الأسبوع</th>
+                        <th className={th}>الحالة</th>
+                        <th className={th}>إجراء</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activities.map((a) => {
+                        const at = attempts[a.id]
+                        const isDraft = at?.status === 'draft'
+                        const isSubmitted = at?.status === 'submitted'
+                        const isGraded = at?.status === 'graded'
                         return (
                           <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
                             <td className="p-3 text-base font-semibold text-ink">{a.title}</td>
                             <td className="p-3">الأسبوع {a.week_number}</td>
-                            <td className="p-3 font-semibold text-primary">{graded ? at.auto_score : '—'}</td>
-                            <td className="p-3">{graded ? (at.manual_score ?? '—') : '—'}</td>
-                            <td className="p-3 text-lg font-bold text-secondary" dir="ltr">
-                              {graded
-                                ? <>{cappedTotal.toFixed(1)} / {a.total_possible}</>
-                                : <>— / {a.total_possible}</>}
+                            <td className="p-3">
+                              {isGraded
+                                ? <Tag tone="ok">مصحح ✓</Tag>
+                                : isSubmitted
+                                  ? <Tag tone="wait">بانتظار التصحيح</Tag>
+                                  : isDraft
+                                    ? <Tag tone="info">قيد الإجابة</Tag>
+                                    : <Tag tone="ok">متاح</Tag>}
                             </td>
                             <td className="p-3">
-                              {graded
-                                ? <Tag tone="ok">مصحح ✓</Tag>
-                                : <Tag tone="wait">بانتظار التصحيح</Tag>}
+                              <button className={isGraded ? btnOutline : btn} onClick={() => setTab('selftest')}>
+                                {isGraded ? 'عرض إجاباتي' : isSubmitted ? 'تعديل الإجابات' : isDraft ? 'متابعة' : 'ابدأ'}
+                              </button>
                             </td>
                           </tr>
                         )
                       })}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
+
+      {mounted.includes('grades') && (
+        <div style={show('grades')}>
+          <div className="space-y-4">
+            <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-3xl font-bold">درجاتي</h2>
+                  <p className="mt-1 text-base text-white/85">نتائجك في الأنشطة المصححة.</p>
+                </div>
+                <button
+                  className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
+                  onClick={() => void refresh()}
+                  disabled={refreshing}
+                >
+                  {refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}
+                </button>
               </div>
+              <div className="absolute inset-x-0 bottom-0 flex h-1" aria-hidden="true">
+                <span className="flex-[3] bg-accent" />
+                <span className="flex-1 bg-secondary" />
+                <span className="flex-1 bg-warning" />
+              </div>
+            </section>
+
+            {reports.length > 0 && (
+              <section className="rounded-2xl border-2 border-accent bg-gradient-to-l from-accent-soft/40 to-white p-5 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-bold text-primary">
+                      📄 تقاريري الرسمية {unseenReports > 0 && (
+                        <span className="ms-2 rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">
+                          {unseenReports} جديد
+                        </span>
+                      )}
+                    </h3>
+                    <p className="mt-1 text-sm text-ink-muted">
+                      تقارير أكاديمية معتمدة من مدرس المقرر — يمكنك طباعتها أو حفظها PDF.
+                    </p>
+                  </div>
+                </div>
+                <ul className="mt-4 space-y-3">
+                  {reports.map((r) => (
+                    <li
+                      key={r.id}
+                      className={
+                        'flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 bg-white p-4 transition hover:shadow-md ' +
+                        (r.seen_at ? 'border-light-blue' : 'border-accent')
+                      }
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-base font-bold text-ink">
+                            {r.type === 'weekly'
+                              ? `تقرير الأسبوع ${r.from_week_number}`
+                              : `تقرير تراكمي — الأسابيع ${r.from_week_number} – ${r.to_week_number}`}
+                          </span>
+                          {!r.seen_at && (
+                            <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">جديد</span>
+                          )}
+                          {r.report_number && (
+                            <span className="rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">
+                              {r.report_number}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-xs text-ink-muted">
+                          صدر {timeAgo(r.approved_at)}
+                        </div>
+                      </div>
+                      <button className={btn} onClick={() => void openReport(r)}>
+                        عرض التقرير
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
-          </section>
+
+            <section className={card}>
+              <h3 className="text-lg font-bold text-primary">جدول الدرجات</h3>
+              {loading ? (
+                <p className="mt-4 text-ink-muted">جارٍ التحميل...</p>
+              ) : error ? (
+                <p className="mt-4 rounded-xl bg-error-soft p-3 font-semibold text-error">{error}</p>
+              ) : activities.filter((a) => {
+                const s = attempts[a.id]?.status
+                return s === 'submitted' || s === 'graded'
+              }).length === 0 ? (
+                <p className="mt-4 text-ink-muted">لا نتائج بعد.</p>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-light-blue">
+                        <th className={th}>النشاط</th>
+                        <th className={th}>الأسبوع</th>
+                        <th className={th}>الدرجة الآلية</th>
+                        <th className={th}>الدرجة اليدوية</th>
+                        <th className={th}>المجموع</th>
+                        <th className={th}>الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activities
+                        .filter((a) => {
+                          const s = attempts[a.id]?.status
+                          return s === 'submitted' || s === 'graded'
+                        })
+                        .map((a) => {
+                          const at = attempts[a.id]!
+                          const rawTotal = at.auto_score + (at.manual_score ?? 0)
+                          const cappedTotal = Math.min(rawTotal, a.total_possible)
+                          const graded = at.status === 'graded'
+                          return (
+                            <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
+                              <td className="p-3 text-base font-semibold text-ink">{a.title}</td>
+                              <td className="p-3">الأسبوع {a.week_number}</td>
+                              <td className="p-3 font-semibold text-primary">{graded ? at.auto_score : '—'}</td>
+                              <td className="p-3">{graded ? (at.manual_score ?? '—') : '—'}</td>
+                              <td className="p-3 text-lg font-bold text-secondary" dir="ltr">
+                                {graded
+                                  ? <>{cappedTotal.toFixed(1)} / {a.total_possible}</>
+                                  : <>— / {a.total_possible}</>}
+                              </td>
+                              <td className="p-3">
+                                {graded
+                                  ? <Tag tone="ok">مصحح ✓</Tag>
+                                  : <Tag tone="wait">بانتظار التصحيح</Tag>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
         </div>
       )}
 
