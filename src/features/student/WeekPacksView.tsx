@@ -46,7 +46,6 @@ export default function WeekPacksView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [viewing, setViewing] = useState<ViewState | null>(null)
-  // مفتاح الأسبوع المفتوح حاليًا — null يعني كلها مغلقة
   const [openWeekId, setOpenWeekId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -120,7 +119,6 @@ export default function WeekPacksView() {
         const isOpen = openWeekId === w.id
         return (
           <section key={w.id} className="overflow-hidden rounded-2xl border border-light-blue bg-white shadow-sm">
-            {/* رأس الأسبوع — قابل للنقر */}
             <button
               className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-start transition ${
                 isOpen
@@ -147,7 +145,6 @@ export default function WeekPacksView() {
               </span>
             </button>
 
-            {/* محتوى الأسبوع */}
             {isOpen && (
               <div className="border-t border-light-blue bg-bg p-4">
                 {w.summary && (
@@ -193,7 +190,7 @@ export default function WeekPacksView() {
 }
 
 /* ============================================================
-   قسم الدرس — مطوي أيضًا
+   قسم الدرس — مطوي بخلفية خضراء خفيفة
    ============================================================ */
 function LessonView({ lesson, materials, viewUrls, downloadUrls, onOpen }: {
   lesson: Lesson
@@ -210,28 +207,28 @@ function LessonView({ lesson, materials, viewUrls, downloadUrls, onOpen }: {
   const totalCount = docs.length + slides.length + links.length
 
   return (
-    <section className="overflow-hidden rounded-xl border border-light-blue bg-white">
+    <section className="overflow-hidden rounded-xl border-2 border-secondary/25 border-s-4 border-s-secondary shadow-sm">
       <button
-        className="flex w-full items-center justify-between gap-3 bg-white px-4 py-3 text-start transition hover:bg-primary-soft"
+        className="flex w-full items-center justify-between gap-3 bg-secondary-soft/60 px-4 py-3 text-start transition hover:bg-secondary-soft/90"
         onClick={() => setOpen(!open)}
       >
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xl text-primary">{open ? '▼' : '▶'}</span>
-          <span className="text-base font-bold text-primary">
+          <span className="text-xl text-secondary">{open ? '▼' : '▶'}</span>
+          <span className="text-base font-bold text-secondary">
             {(() => {
               const isDefaultTitle = !lesson.title || lesson.title === `الدرس ${lesson.position}`
               return `📖 ${isDefaultTitle ? `الدرس ${lesson.position}` : `الدرس ${lesson.position}: ${lesson.title}`}`
             })()}
           </span>
-          <span className="rounded-lg bg-bg px-2 py-0.5 text-xs text-ink-muted">
+          <span className="rounded-lg bg-white/80 px-2 py-0.5 text-xs font-semibold text-secondary ring-1 ring-secondary/20">
             {totalCount} مادة
           </span>
         </div>
-        <span className="text-sm text-ink-muted">{open ? 'إغلاق' : 'عرض'}</span>
+        <span className="text-sm font-semibold text-secondary/80">{open ? 'إغلاق' : 'عرض'}</span>
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-light-blue bg-bg p-4">
+        <div className="space-y-4 border-t border-secondary/15 bg-secondary-soft/20 p-4">
           {lesson.body && (
             <div className="whitespace-pre-wrap rounded-xl bg-white p-4 text-base leading-8 text-ink">
               {lesson.body}
