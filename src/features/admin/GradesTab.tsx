@@ -242,7 +242,26 @@ export default function GradesTab() {
 
   async function resetAttempt() {
     if (!supabase || !gradingRow) return
-    if (!window.confirm(`إعادة تعيين محاولة ${gradingRow.student_name}؟ سيُحذف كل ما أجاب عنه.`)) return
+
+    // فحص: هل هناك تقرير نشط لهذا الطالب يشمل هذا الأسبوع؟
+    const { data: activeReports } = await supabase
+      .from('weekly_reports')
+      .select('id,report_number,from_week_number,to_week_number')
+      .eq('student_id', gradingRow.student_id)
+      .eq('status', 'active')
+      .lte('from_week_number', gradingRow.week_number)
+      .gte('to_week_number', gradingRow.week_number)
+
+    let msg = `إعادة تعيين محاولة ${gradingRow.student_name}؟\n\nسيُحذف كل ما أجاب عنه في هذا النشاط.`
+    if (activeReports && activeReports.length > 0) {
+      const reps = activeReports.map(r =>
+        r.report_number ? `• ${r.report_number}` : `• تقرير ${r.from_week_number}–${r.to_week_number}`
+      ).join('\n')
+      msg += `\n\n⚠️ سيتم إلغاء التقارير المعتمدة الآتية تلقائيًا:\n${reps}\n\nهل أنت متأكد؟`
+    }
+
+    if (!window.confirm(msg)) return
+
     setBusy(true); setError(null); setSuccess(null)
     const { data, error: rpcErr } = await supabase.rpc('reset_attempt', { p_attempt_id: gradingRow.id })
     setBusy(false)
