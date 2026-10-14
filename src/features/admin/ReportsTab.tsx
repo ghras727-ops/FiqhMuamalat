@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
+import InstitutionalReport, { type InstitutionalSnapshot } from '../shared/InstitutionalReport'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:opacity-60'
@@ -64,6 +65,12 @@ export default function ReportsTab() {
 
   const [reports, setReports] = useState<ExistingReport[]>([])
   const [busy, setBusy] = useState(false)
+
+  // التقرير المؤسسي
+  const [instSnapshot, setInstSnapshot] = useState<InstitutionalSnapshot | null>(null)
+  const [instFromWeek, setInstFromWeek] = useState(1)
+  const [instToWeek, setInstToWeek] = useState(7)
+  const [instBusy, setInstBusy] = useState(false)
 
   // معاينة: 'new' للإنشاء، أو report ID للعرض
   const [preview, setPreview] = useState<{
@@ -291,6 +298,19 @@ export default function ReportsTab() {
     await loadReports()
   }
 
+  async function generateInstitutional() {
+    if (!supabase) return
+    setError(null)
+    setInstBusy(true)
+    const { data, error: rpcErr } = await supabase.rpc('institutional_report', {
+      p_from_week: instFromWeek,
+      p_to_week: instToWeek,
+    })
+    setInstBusy(false)
+    if (rpcErr) { setError('تعذّر إنشاء التقرير: ' + rpcErr.message); return }
+    setInstSnapshot(data as InstitutionalSnapshot)
+  }
+
   function printReport() {
     window.print()
   }
@@ -316,6 +336,40 @@ export default function ReportsTab() {
       <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
         <h2 className="text-3xl font-bold">التقارير</h2>
         <p className="mt-1 text-base text-white/85">إصدار تقارير أكاديمية رسمية واعتمادها للطلاب.</p>
+      </section>
+
+      {/* ============ التقرير المؤسسي ============ */}
+      <section className={card}>
+        <h3 className="text-xl font-bold text-primary">📊 التقرير المؤسسي للإدارة</h3>
+        <p className="mt-1 text-sm text-ink-muted">
+          كشف شامل لجميع الطلاب — نتائج + حضور — جاهز للطباعة.
+        </p>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div>
+            <label className="text-sm font-semibold text-ink">من الأسبوع</label>
+            <input
+              type="number" min={1} max={16}
+              className={input}
+              value={instFromWeek}
+              onChange={(e) => setInstFromWeek(parseInt(e.target.value, 10) || 1)}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-ink">إلى الأسبوع</label>
+            <input
+              type="number" min={1} max={16}
+              className={input}
+              value={instToWeek}
+              onChange={(e) => setInstToWeek(parseInt(e.target.value, 10) || 1)}
+            />
+          </div>
+          <div className="flex items-end">
+            <button className={btn} onClick={() => void generateInstitutional()} disabled={instBusy}>
+              {instBusy ? '...' : '📊 إنشاء التقرير'}
+            </button>
+          </div>
+        </div>
       </section>
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
@@ -506,6 +560,33 @@ export default function ReportsTab() {
                 reportNumber={preview.reportNumber}
                 approvedAt={preview.approvedAt}
                 teacherNote={preview.teacherNote}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* نافذة التقرير المؤسسي */}
+      {instSnapshot && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
+          <div className="mx-auto max-w-[900px]">
+            <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
+              <div className="text-base font-bold text-primary">
+                📊 التقرير المؤسسي — الأسابيع {instSnapshot.from_week}–{instSnapshot.to_week}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className={btnOutline} onClick={() => window.print()}>
+                  🖨️ طباعة / PDF
+                </button>
+                <button className={btn} onClick={() => setInstSnapshot(null)}>
+                  إغلاق
+                </button>
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <InstitutionalReport
+                snapshot={instSnapshot}
+                generatedAt={instSnapshot.generated_at}
               />
             </div>
           </div>
