@@ -366,7 +366,7 @@ export default function ReportsTab() {
           </div>
           <div className="flex items-end">
             <button className={btn} onClick={() => void generateInstitutional()} disabled={instBusy}>
-              {instBusy ? '...' : '📊 إنشاء التقرير'}
+              {instBusy ? '...' : '📊 تقرير النتائج المؤسسي'}
             </button>
           </div>
         </div>
@@ -587,6 +587,7 @@ export default function ReportsTab() {
               <InstitutionalReport
                 snapshot={instSnapshot}
                 generatedAt={instSnapshot.generated_at}
+                mode="grades"
               />
             </div>
           </div>

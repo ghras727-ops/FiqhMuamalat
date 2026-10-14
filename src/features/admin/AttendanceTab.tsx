@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import InstitutionalReport, { type InstitutionalSnapshot } from '../shared/InstitutionalReport'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
+const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:opacity-60'
 const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
 const btnSuccess = 'rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary-hover disabled:opacity-60'
+const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink'
 
 interface Week { id: string; number: number; title: string }
 interface Student { id: string; full_name: string; student_no: string | null }
@@ -19,6 +22,12 @@ export default function AttendanceTab() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  // التقرير المؤسسي
+  const [instSnapshot, setInstSnapshot] = useState<InstitutionalSnapshot | null>(null)
+  const [instFromWeek, setInstFromWeek] = useState(1)
+  const [instToWeek, setInstToWeek] = useState(7)
+  const [instBusy, setInstBusy] = useState(false)
 
   const loadBase = useCallback(async () => {
     if (!supabase) return
@@ -65,7 +74,6 @@ export default function AttendanceTab() {
 
   async function setStatus(studentId: string, status: AttStatus) {
     if (!supabase || !currentWeekId) return
-    // optimistic update
     const prev = marks[studentId]
     setMarks((m) => ({ ...m, [studentId]: status }))
     setSuccess(null)
@@ -76,7 +84,6 @@ export default function AttendanceTab() {
     })
     if (rpcErr) {
       setError('تعذّر الحفظ: ' + rpcErr.message)
-      // rollback
       setMarks((m) => {
         const c = { ...m }
         if (prev) c[studentId] = prev; else delete c[studentId]
@@ -96,6 +103,19 @@ export default function AttendanceTab() {
     await loadWeek()
   }
 
+  async function generateReport() {
+    if (!supabase) return
+    setError(null)
+    setInstBusy(true)
+    const { data, error: rpcErr } = await supabase.rpc('institutional_report', {
+      p_from_week: instFromWeek,
+      p_to_week: instToWeek,
+    })
+    setInstBusy(false)
+    if (rpcErr) { setError('تعذّر إنشاء التقرير: ' + rpcErr.message); return }
+    setInstSnapshot(data as InstitutionalSnapshot)
+  }
+
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
   const currentWeek = weeks.find((w) => w.id === currentWeekId)
@@ -106,12 +126,42 @@ export default function AttendanceTab() {
 
   return (
     <div className="space-y-5">
-      {/* رأس الصفحة */}
       <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
-        <h2 className="text-3xl font-bold">📋 الحضور والغياب</h2>
-        <p className="mt-1 text-base text-white/85">
-          سجّل حضور الطلاب لكل أسبوع. تُحفظ تلقائيًا عند كل نقرة.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-3xl font-bold">📋 الحضور والغياب</h2>
+            <p className="mt-1 text-base text-white/85">
+              سجّل حضور الطلاب لكل أسبوع — حفظ تلقائي.
+            </p>
+          </div>
+          <button
+            className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
+            onClick={() => void generateReport()}
+            disabled={instBusy}
+          >
+            {instBusy ? '...' : '📊 تقرير الحضور المؤسسي'}
+          </button>
+        </div>
+      </section>
+
+      {/* اختيار المدى للتقرير */}
+      <section className={card}>
+        <h3 className="text-base font-bold text-primary">📊 إعداد التقرير المؤسسي</h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div>
+            <label className="text-sm font-semibold text-ink">من الأسبوع</label>
+            <input type="number" min={1} max={16} className={input} value={instFromWeek} onChange={(e) => setInstFromWeek(parseInt(e.target.value, 10) || 1)} />
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-ink">إلى الأسبوع</label>
+            <input type="number" min={1} max={16} className={input} value={instToWeek} onChange={(e) => setInstToWeek(parseInt(e.target.value, 10) || 1)} />
+          </div>
+          <div className="flex items-end">
+            <button className={btn} onClick={() => void generateReport()} disabled={instBusy}>
+              {instBusy ? '...' : '📊 إنشاء وعرض'}
+            </button>
+          </div>
+        </div>
       </section>
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
@@ -170,7 +220,7 @@ export default function AttendanceTab() {
                 <th className="p-3 text-start text-ink-muted">#</th>
                 <th className="p-3 text-start text-ink-muted">الطالب</th>
                 <th className="p-3 text-start text-ink-muted">الرقم</th>
-                <th className="p-3 text-center text-ink-muted" colSpan={3}>الحالة</th>
+                <th className="p-3 text-center text-ink-muted">الحالة</th>
               </tr>
             </thead>
             <tbody>
@@ -183,24 +233,9 @@ export default function AttendanceTab() {
                     <td className="p-3 font-mono text-xs text-ink-muted" dir="ltr">{s.student_no ?? '—'}</td>
                     <td className="p-3">
                       <div className="flex flex-wrap justify-center gap-1.5">
-                        <StatusButton
-                          active={st === 'present'}
-                          tone="success"
-                          label="حاضر"
-                          onClick={() => void setStatus(s.id, 'present')}
-                        />
-                        <StatusButton
-                          active={st === 'absent'}
-                          tone="danger"
-                          label="غائب"
-                          onClick={() => void setStatus(s.id, 'absent')}
-                        />
-                        <StatusButton
-                          active={st === 'excused'}
-                          tone="info"
-                          label="معذور"
-                          onClick={() => void setStatus(s.id, 'excused')}
-                        />
+                        <StatusButton active={st === 'present'} tone="success" label="حاضر" onClick={() => void setStatus(s.id, 'present')} />
+                        <StatusButton active={st === 'absent'} tone="danger" label="غائب" onClick={() => void setStatus(s.id, 'absent')} />
+                        <StatusButton active={st === 'excused'} tone="info" label="معذور" onClick={() => void setStatus(s.id, 'excused')} />
                       </div>
                     </td>
                   </tr>
@@ -210,6 +245,34 @@ export default function AttendanceTab() {
           </table>
         </div>
       </section>
+
+      {/* نافذة التقرير */}
+      {instSnapshot && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
+          <div className="mx-auto max-w-[900px]">
+            <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
+              <div className="text-base font-bold text-primary">
+                📋 تقرير الحضور — الأسابيع {instSnapshot.from_week}–{instSnapshot.to_week}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className={btnOutline} onClick={() => window.print()}>
+                  🖨️ طباعة / PDF
+                </button>
+                <button className={btn} onClick={() => setInstSnapshot(null)}>
+                  إغلاق
+                </button>
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <InstitutionalReport
+                snapshot={instSnapshot}
+                generatedAt={instSnapshot.generated_at}
+                mode="attendance"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
