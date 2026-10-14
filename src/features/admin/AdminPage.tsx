@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import AppShell, { type ShellTab } from '../../components/AppShell'
+import AttendanceTab from './AttendanceTab'
 import GradesTab from './GradesTab'
 import HomeTab from './HomeTab'
 import MaterialsTab from './MaterialsTab'
@@ -14,6 +15,7 @@ const TABS: ShellTab[] = [
   { key: 'home', label: 'الرئيسة' },
   { key: 'posts', label: 'المنشورات' },
   { key: 'students', label: 'الطلاب' },
+  { key: 'attendance', label: 'الحضور والغياب' },
   { key: 'weeks', label: 'الأسابيع والدروس' },
   { key: 'materials', label: 'المواد' },
   { key: 'bank', label: 'بنك الأسئلة' },
@@ -26,7 +28,6 @@ export default function AdminPage() {
   const [tab, setTab] = useState('home')
   const [mounted, setMounted] = useState<string[]>(['home'])
 
-  // عند التنقل: أضف التبويب إلى قائمة المثبّتة (لا يُزال)
   useEffect(() => {
     setMounted((prev) => (prev.includes(tab) ? prev : [...prev, tab]))
   }, [tab])
@@ -35,6 +36,7 @@ export default function AdminPage() {
     { key: 'home', node: <HomeTab /> },
     { key: 'posts', node: <PostsTab /> },
     { key: 'students', node: <StudentsTab /> },
+    { key: 'attendance', node: <AttendanceTab /> },
     { key: 'weeks', node: <WeeksTab /> },
     { key: 'materials', node: <MaterialsTab /> },
     { key: 'bank', node: <QuizSetsTab /> },
