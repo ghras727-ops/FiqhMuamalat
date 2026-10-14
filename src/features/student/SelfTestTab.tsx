@@ -582,7 +582,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
                           )
                         )}
 
-                        {isReview && notes[q.id] && (
+                        {isReview && rev && (rev.option_id || rev.text_answer) && notes[q.id] && (
                           <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft/30 p-3 text-sm leading-7 text-ink">
                             <b className="text-primary">💡 التوضيح: </b>
                             {notes[q.id]}
