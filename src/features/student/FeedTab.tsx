@@ -40,7 +40,26 @@ interface MaterialWithCtx extends MaterialRow {
   week_number: number; lesson_title: string | null
 }
 
-interface RankRow { student_id: string; full_name: string; student_no: string | null; earned: number; possible: number; percent: number }
+// ⬇️ مُحدَّث: أوائل النشاط المفتوح حاليًا فقط
+interface RankRow {
+  activity_id: string
+  activity_title: string
+  week_number: number
+  student_id: string
+  full_name: string
+  student_no: string | null
+  earned: number
+  possible: number
+  percent: number
+}
+
+// ⬇️ جديد: بيانات النشاط المفتوح حاليًا (لعرض العنوان في الحالة الفارغة)
+interface CurrentActivity {
+  id: string
+  title: string
+  weekNumber: number
+}
+
 interface BestRow { activity_title: string; student_name: string; percent: number }
 interface StatsRow { students: number; lessons: number; materials: number; weeks: number; questions: number; attempts: number }
 
@@ -118,6 +137,7 @@ export default function FeedTab() {
   const [materials, setMaterials] = useState<MaterialWithCtx[]>([])
 
   const [ranking, setRanking] = useState<RankRow[]>([])
+  const [currentActivity, setCurrentActivity] = useState<CurrentActivity | null>(null)
   const [best, setBest] = useState<BestRow | null>(null)
   const [stats, setStats] = useState<StatsRow>({
     students: 0, lessons: 0, materials: 0, weeks: 0, questions: 0, attempts: 0,
@@ -129,11 +149,22 @@ export default function FeedTab() {
     if (!supabase) return
     setLoading(true); setError(null)
 
-    const [pRes, cRes, lRes, rRes, bRes, stRes, lsRes, msRes, wkRes, qRes, atRes] = await Promise.all([
+    const [
+      pRes, cRes, lRes, rRes, curActRes, bRes, stRes, lsRes, msRes, wkRes, qRes, atRes,
+    ] = await Promise.all([
       supabase.from('posts').select('id,author_id,kind,title,body,attachment_path,external_url,pinned,hidden,allow_comments,show_names,linked_type,linked_id,created_at,updated_at').order('pinned', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('post_comments').select('id,post_id,author_id,text,hidden,created_at').order('created_at'),
       supabase.from('post_likes').select('post_id,student_id'),
-      supabase.rpc('class_ranking'),
+      // ⬇️ RPC الجديد: أوائل النشاط المفتوح حاليًا
+      supabase.rpc('current_activity_ranking'),
+      // ⬇️ بيانات النشاط المفتوح (لعرض العنوان في الحالة الفارغة)
+      supabase
+        .from('activities')
+        .select('id,title,week_id,weeks(number)')
+        .eq('open', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
       supabase.rpc('best_activity_score'),
       supabase.from('profiles_public').select('id,full_name,role'),
       supabase.from('lessons').select('id'),
@@ -190,7 +221,20 @@ export default function FeedTab() {
     setSignedUrls(signed)
     setMaterials(mats)
 
+    // ⬇️ أوائل النشاط المفتوح حاليًا
     if (!rRes.error) setRanking((rRes.data ?? []) as RankRow[])
+
+    // ⬇️ بيانات النشاط المفتوح (للحالة الفارغة)
+    type RawAct = { id: string; title: string; week_id: string; weeks: unknown }
+    const rawAct = curActRes.data as RawAct | null
+    if (rawAct) {
+      const wkRel = rawAct.weeks as { number: number } | { number: number }[] | null
+      const wkNum = Array.isArray(wkRel) ? (wkRel[0]?.number ?? 0) : (wkRel?.number ?? 0)
+      setCurrentActivity({ id: rawAct.id, title: rawAct.title, weekNumber: wkNum })
+    } else {
+      setCurrentActivity(null)
+    }
+
     const bArr = (bRes.data ?? []) as BestRow[]
     setBest(bArr[0] ?? null)
 
@@ -274,15 +318,19 @@ export default function FeedTab() {
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
+  // ⬇️ ترتيب الطالب + متوسط الصف — يُبنى على ranking (الأسبوع المفتوح حاليًا)
   const meRank = ranking.findIndex((r) => r.student_id === me) + 1
   const meRow = ranking.find((r) => r.student_id === me)
-  const classAvg = ranking.length === 0 ? 0 : Math.round(ranking.reduce((t, r) => t + r.percent, 0) / ranking.length)
+  const classAvg: number | null = ranking.length === 0
+    ? null
+    : Math.round(ranking.reduce((t, r) => t + r.percent, 0) / ranking.length)
   const topThree = ranking.slice(0, 3)
+  const hasRanking = topThree.length > 0
 
-  // بطاقات إحصائية (بدون "أفضل طالب" — له بطاقة خاصة أعلى)
+  // بطاقات إحصائية
   const statCards: { label: string; value: string; sub: string; tone: 'primary' | 'secondary' | 'accent' | 'warning' | 'error' | 'ink' }[] = [
     { label: 'أفضل نشاط', value: best ? `${best.percent}%` : '—', sub: best?.student_name ?? '—', tone: 'secondary' },
-    { label: 'متوسط الصف', value: `${classAvg}%`, sub: `${ranking.length} طالبًا`, tone: 'accent' },
+    { label: 'متوسط الصف', value: classAvg === null ? '—' : `${classAvg}%`, sub: `${ranking.length} طالبًا`, tone: 'accent' },
     { label: 'ترتيبك', value: meRank > 0 ? `#${meRank}` : '—', sub: meRow ? `${meRow.percent}%` : '—', tone: 'warning' },
     { label: 'المواد', value: String(stats.materials), sub: `${stats.lessons} درسًا`, tone: 'ink' },
     { label: 'المشاركون', value: String(stats.students), sub: `${stats.attempts} محاولة`, tone: 'error' },
@@ -316,14 +364,19 @@ export default function FeedTab() {
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-sm font-semibold text-error">{error}</p>}
 
-      {/* 🏆 بطاقة صدارة المنصة — الأوائل الثلاثة */}
-      {topThree.length > 0 && (
+      {/* 🏆 بطاقة صدارة المنصة — أوائل الأسبوع المفتوح حاليًا فقط */}
+      {hasRanking && (
         <section className="relative overflow-hidden rounded-2xl border-2 border-warning bg-gradient-to-b from-warning-soft/60 to-white p-5 shadow-md">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 text-2xl font-bold text-primary">
-              <span className="text-3xl">🏆</span>
-              صدارة المنصة
-            </h3>
+            <div>
+              <h3 className="flex items-center gap-2 text-2xl font-bold text-primary">
+                <span className="text-3xl">🏆</span>
+                صدارة الأسبوع {ranking[0].week_number}
+              </h3>
+              <p className="mt-1 text-sm font-semibold text-ink-muted">
+                {ranking[0].activity_title}
+              </p>
+            </div>
             <span className="rounded-lg bg-white px-3 py-1 text-xs font-semibold text-ink-muted ring-1 ring-warning">
               أعلى 3 نتائج — حسب النسبة المئوية
             </span>
@@ -385,7 +438,23 @@ export default function FeedTab() {
         </section>
       )}
 
-      {/* البطاقات الإحصائية الخمس الأخرى */}
+      {/* ⏳ حالة انتظار: نشاط مفتوح لكن لا نتائج مصححة بعد */}
+      {!hasRanking && currentActivity && (
+        <section className="relative overflow-hidden rounded-2xl border-2 border-dashed border-warning bg-gradient-to-b from-warning-soft/40 to-white p-6 shadow-sm">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="text-5xl">🏆</div>
+            <h3 className="text-2xl font-bold text-primary">صدارة المنصة</h3>
+            <p className="text-base font-semibold text-ink">
+              الأسبوع {currentActivity.weekNumber}: {currentActivity.title}
+            </p>
+            <p className="mt-1 max-w-md text-sm text-ink-muted">
+              ⏳ بانتظار نتائج الطلاب في هذا الأسبوع. بمجرد تصحيح أول محاولة، ستظهر أسماء الأوائل الثلاثة هنا.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* البطاقات الإحصائية الخمس */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         {statCards.map((s) => (
           <StatCard key={s.label} {...s} />
