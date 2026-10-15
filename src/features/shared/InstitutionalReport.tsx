@@ -287,19 +287,19 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
         {/* ============ الملخص ============ */}
         <section style={{ marginTop: '10px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
-            <SummaryCard icon="👥" label="عدد الطلاب" value={String(total_students)} tone="primary" />
+            <SummaryCard label="عدد الطلاب" value={String(total_students)} tone="primary" />
             {isGrades && (
               <>
-                <SummaryCard icon="📊" label="متوسط النتائج" value={`${classAvg}%`} tone={classAvg >= 70 ? 'success' : classAvg >= 50 ? 'info' : 'error'} />
-                <SummaryCard icon="🏆" label="أعلى نتيجة" value={graded.length > 0 ? `${topPercent}%` : '—'} tone="success" />
-                <SummaryCard icon="📉" label="أدنى نتيجة" value={graded.length > 0 ? `${lowPercent}%` : '—'} tone={lowPercent < 50 ? 'error' : 'info'} />
+                <SummaryCard label="متوسط النتائج" value={`${classAvg}%`} tone={classAvg >= 70 ? 'success' : classAvg >= 50 ? 'info' : 'error'} />
+                <SummaryCard label="أعلى نتيجة" value={graded.length > 0 ? `${topPercent}%` : '—'} tone="success" />
+                <SummaryCard label="أدنى نتيجة" value={graded.length > 0 ? `${lowPercent}%` : '—'} tone={lowPercent < 50 ? 'error' : 'info'} />
               </>
             )}
             {isAtt && (
               <>
-                <SummaryCard icon="📈" label="متوسط الحضور" value={`${classAttPercent}%`} tone={classAttPercent >= 80 ? 'success' : classAttPercent >= 60 ? 'info' : 'error'} />
-                <SummaryCard icon="✅" label="إجمالي الحضور" value={`${totalAttPresent} / ${totalAttPossible}`} tone="success" />
-                <SummaryCard icon="🚫" label="إجمالي الغياب" value={String(totalAttPossible - totalAttPresent)} tone={classAttPercent >= 80 ? 'ink' : 'error'} />
+                <SummaryCard label="متوسط الحضور" value={`${classAttPercent}%`} tone={classAttPercent >= 80 ? 'success' : classAttPercent >= 60 ? 'info' : 'error'} />
+                <SummaryCard label="إجمالي الحضور" value={`${totalAttPresent} / ${totalAttPossible}`} tone="success" />
+                <SummaryCard label="إجمالي الغياب" value={String(totalAttPossible - totalAttPresent)} tone={classAttPercent >= 80 ? 'ink' : 'error'} />
               </>
             )}
           </div>
@@ -461,7 +461,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   )
 }
 
-function SummaryCard({ label, value, tone, icon, hint }: { label: string; value: string; tone: 'primary' | 'success' | 'info' | 'error' | 'ink'; icon: string; hint?: string }) {
+function SummaryCard({ label, value, tone, hint }: { label: string; value: string; tone: 'primary' | 'success' | 'info' | 'error' | 'ink'; hint?: string }) {
   const tones: Record<string, { soft: string; accent: string; text: string }> = {
     primary: { soft: C.blueSoft, accent: C.blue, text: C.blue },
     success: { soft: C.greenSoft, accent: C.green, text: C.green },
@@ -472,18 +472,11 @@ function SummaryCard({ label, value, tone, icon, hint }: { label: string; value:
   const t = tones[tone]
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 9px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 10px',
       background: `linear-gradient(135deg, #FFFFFF 0%, ${t.soft} 100%)`,
       border: `1px solid ${C.line}`, borderTop: `3px solid ${t.accent}`, borderRadius: '8px',
       boxShadow: '0 1px 2px rgba(11,108,179,0.10)',
     }}>
-      <div style={{
-        width: '28px', height: '28px', flexShrink: 0, borderRadius: '50%',
-        background: 'white', border: `1.5px solid ${t.accent}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', lineHeight: 1,
-      }}>
-        {icon}
-      </div>
       <div style={{ flex: 1, textAlign: 'center' }}>
         <div style={{ fontSize: '10px', color: C.gray, fontWeight: 700, lineHeight: 1.4 }}>
           {label}
