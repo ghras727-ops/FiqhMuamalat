@@ -9,6 +9,7 @@ const btnSuccess = 'rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text
 const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink'
 
 type QType = 'mcq' | 'tf' | 'essay_smart' | 'essay_reasoning'
+type WeekFilter = number | 'all'
 
 const TYPE_LABEL: Record<QType, string> = {
   mcq: 'اختيار من متعدد', tf: 'صح / خطأ',
@@ -21,6 +22,8 @@ const TYPE_STYLE: Record<QType, { headerBg: string; headerText: string; badgeBg:
   essay_smart:     { headerBg: 'border-s-accent',    headerText: 'text-ink-muted', badgeBg: 'bg-accent-soft/30 text-primary border-accent/50' },
   essay_reasoning: { headerBg: 'border-s-ink',       headerText: 'text-ink-muted', badgeBg: 'bg-ink/5 text-ink border-ink/20' },
 }
+
+interface WeekInfo { id: string; number: number; title: string }
 
 interface AttemptRow {
   id: string; activity_id: string; student_id: string
@@ -56,17 +59,20 @@ function timeAgo(iso: string): string {
   if (diff < 3600) return `قبل ${Math.floor(diff / 60)} دقيقة`
   if (diff < 86400) return `قبل ${Math.floor(diff / 3600)} ساعة`
   if (diff < 604800) return `قبل ${Math.floor(diff / 86400)} يوم`
-  return new Date(iso).toLocaleDateString('ar-SA')
+  return new Date(iso).toLocaleDateString('ar-SA-u-nu-latn')
 }
 
 export default function GradesTab() {
   const [rows, setRows] = useState<AttemptRow[]>([])
   const [retakeRequests, setRetakeRequests] = useState<RetakeRequest[]>([])
+  const [weeks, setWeeks] = useState<WeekInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [selectedWeek, setSelectedWeek] = useState<WeekFilter>('all')
 
+  // grading panel
   const [gradingRow, setGradingRow] = useState<AttemptRow | null>(null)
   const [gradingQuestions, setGradingQuestions] = useState<Question[]>([])
   const [gradingOptions, setGradingOptions] = useState<Record<string, Option[]>>({})
@@ -81,13 +87,16 @@ export default function GradesTab() {
     if (!supabase) return
     setLoading(true); setError(null)
 
-    const [att, rq] = await Promise.all([
+    const [wRes, att, rq] = await Promise.all([
+      supabase.from('weeks').select('id,number,title').order('number'),
       supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at').order('submitted_at', { ascending: false }),
       supabase.from('retake_requests').select('id,activity_id,student_id,attempt_id,reason,created_at,status').eq('status', 'pending').order('created_at', { ascending: true }),
     ])
 
-    if (att.error) { setError('تعذّر تحميل النتائج: ' + att.error.message); setLoading(false); return }
-    if (rq.error) { setError('تعذّر تحميل طلبات الإعادة: ' + rq.error.message); setLoading(false); return }
+    if (wRes.error || att.error) { setError('تعذّر تحميل النتائج.'); setLoading(false); return }
+    if (rq.error) { setError('تعذّر تحميل طلبات الإعادة.'); setLoading(false); return }
+
+    setWeeks((wRes.data ?? []) as WeekInfo[])
 
     const attempts = (att.data ?? []) as RawAttempt[]
     const reqs = (rq.data ?? []) as { id: string; activity_id: string; student_id: string; attempt_id: string | null; reason: string; created_at: string }[]
@@ -115,8 +124,8 @@ export default function GradesTab() {
 
     const weekMap: Record<string, number> = {}
     if (weekIds.size > 0) {
-      const wRes = await supabase.from('weeks').select('id,number').in('id', Array.from(weekIds))
-      for (const w of (wRes.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
+      const wRes2 = await supabase.from('weeks').select('id,number').in('id', Array.from(weekIds))
+      for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
     const totalByActivity: Record<string, number> = {}
@@ -243,7 +252,6 @@ export default function GradesTab() {
   async function resetAttempt() {
     if (!supabase || !gradingRow) return
 
-    // فحص: هل هناك تقرير نشط لهذا الطالب يشمل هذا الأسبوع؟
     const { data: activeReports } = await supabase
       .from('weekly_reports')
       .select('id,report_number,from_week_number,to_week_number')
@@ -266,18 +274,34 @@ export default function GradesTab() {
     const { data, error: rpcErr } = await supabase.rpc('reset_attempt', { p_attempt_id: gradingRow.id })
     setBusy(false)
     if (rpcErr) { setError('تعذّر إعادة التعيين: ' + rpcErr.message); return }
-    const deleted = (data as { deleted?: number } | null)?.deleted ?? 0
-    if (deleted === 0) { setError('لم يُحذف شيء.'); return }
-    setSuccess('تمت إعادة التعيين بنجاح.')
+    const info = data as { deleted?: number; revoked_reports?: number } | null
+    if (!info || info.deleted === 0) { setError('لم يُحذف شيء.'); return }
+    const revoked = info.revoked_reports ?? 0
+    setSuccess(revoked > 0
+      ? `تمت إعادة التعيين + إلغاء ${revoked} تقرير معتمد.`
+      : 'تمت إعادة التعيين بنجاح.')
     setGradingRow(null); setGradingAnswers({}); setGrades({})
     await load()
   }
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
-  const filtered = query.trim().length === 0
-    ? rows
-    : rows.filter((r) => r.student_name.includes(query) || (r.student_no ?? '').includes(query))
+  // تصفية
+  const filtered = rows.filter((r) => {
+    if (selectedWeek !== 'all' && r.week_number !== selectedWeek) return false
+    if (query.trim() && !r.student_name.includes(query) && !(r.student_no ?? '').includes(query)) return false
+    return true
+  })
+
+  // إحصاءات الأسبوع المحدد
+  const statRows = selectedWeek === 'all' ? rows : rows.filter((r) => r.week_number === selectedWeek)
+  const totalAttempts = statRows.length
+  const gradedCount = statRows.filter((r) => r.status === 'graded').length
+  const gradedPercents = statRows
+    .filter((r) => r.status === 'graded' && r.total_possible > 0)
+    .map((r) => Math.min(100, Math.round(((r.auto_score + (r.manual_score ?? 0)) / r.total_possible) * 100)))
+  const avgPercent = gradedPercents.length === 0 ? 0 : Math.round(gradedPercents.reduce((s, x) => s + x, 0) / gradedPercents.length)
+  const topPercent = gradedPercents.length === 0 ? 0 : Math.max(...gradedPercents)
 
   const sortedAq = [...gradingAq].sort((a, b) => a.position - b.position)
   const grouped: Record<QType, AQ[]> = { mcq: [], tf: [], essay_smart: [], essay_reasoning: [] }
@@ -290,12 +314,13 @@ export default function GradesTab() {
     <div className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
         <h2 className="text-3xl font-bold">الدرجات</h2>
-        <p className="mt-1 text-base text-white/85">نتائج جميع الطلاب وتصحيح الأسئلة المقالية.</p>
+        <p className="mt-1 text-base text-white/85">نتائج الطلاب موزّعة حسب الأسبوع.</p>
       </section>
 
       {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
       {success && <p className="rounded-xl bg-secondary-soft p-3 text-base font-semibold text-secondary ring-1 ring-secondary/20">{success}</p>}
 
+      {/* طلبات الإعادة */}
       {retakeRequests.length > 0 && (
         <section className="rounded-2xl border-2 border-accent bg-gradient-to-l from-accent-soft/40 to-white p-5 shadow-sm">
           <h3 className="text-xl font-bold text-primary">
@@ -312,10 +337,10 @@ export default function GradesTab() {
                       {r.student_no && (
                         <span className="rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.student_no}</span>
                       )}
+                      <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-bold text-primary">
+                        الأسبوع {r.week_number}
+                      </span>
                       <span className="text-xs text-ink-muted">{timeAgo(r.created_at)}</span>
-                    </div>
-                    <div className="mt-1 text-sm text-ink-muted">
-                      الأسبوع {r.week_number}: {r.activity_title}
                     </div>
                     <div className="mt-2 whitespace-pre-wrap rounded-lg bg-accent-soft/30 p-3 text-sm leading-7 text-ink">
                       <b className="text-primary">السبب: </b>{r.reason}
@@ -332,19 +357,80 @@ export default function GradesTab() {
         </section>
       )}
 
+      {/* تبويبات الأسابيع */}
       <section className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <input
-            className={input + ' mt-0 w-full max-w-sm'}
-            placeholder="ابحث باسم الطالب أو رقمه..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <button className={btnOutline} onClick={() => void load()}>تحديث</button>
+        <h3 className="mb-3 text-lg font-bold text-primary">📅 فلترة حسب الأسبوع</h3>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setSelectedWeek('all')}
+            className={
+              'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' +
+              (selectedWeek === 'all'
+                ? 'border-primary bg-primary text-white shadow-md'
+                : 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft')
+            }
+          >
+            الكل ({rows.length})
+          </button>
+          {weeks.map((w) => {
+            const count = rows.filter((r) => r.week_number === w.number).length
+            const active = selectedWeek === w.number
+            const hasAttempts = count > 0
+            return (
+              <button
+                key={w.id}
+                onClick={() => setSelectedWeek(w.number)}
+                disabled={!hasAttempts}
+                className={
+                  'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' +
+                  (active
+                    ? 'border-primary bg-primary text-white shadow-md'
+                    : hasAttempts
+                      ? 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft'
+                      : 'cursor-not-allowed border-ink/10 bg-bg text-ink/30')
+                }
+              >
+                الأسبوع {w.number} ({count})
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* ملخص الأسبوع المحدد */}
+      <section className={card}>
+        <h3 className="mb-3 text-lg font-bold text-primary">
+          📊 ملخص {selectedWeek === 'all' ? 'الإجمالي' : `الأسبوع ${selectedWeek}`}
+        </h3>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <StatCard label="عدد المؤدّين" value={String(totalAttempts)} tone="primary" />
+          <StatCard label="مصحّح" value={`${gradedCount} / ${totalAttempts}`} tone="success" />
+          <StatCard label="متوسط النسبة" value={`${avgPercent}%`} tone={avgPercent >= 70 ? 'success' : avgPercent >= 50 ? 'info' : 'error'} />
+          <StatCard label="أعلى نسبة" value={`${topPercent}%`} tone="success" />
+        </div>
+      </section>
+
+      {/* جدول الطلاب */}
+      <section className={card}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-bold text-primary">
+            👥 طلاب {selectedWeek === 'all' ? 'جميع الأسابيع' : `الأسبوع ${selectedWeek}`}
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className={input + ' mt-0 w-56'}
+              placeholder="ابحث باسم الطالب أو رقمه..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <button className={btnOutline} onClick={() => void load()}>🔄 تحديث</button>
+          </div>
         </div>
 
         {filtered.length === 0 ? (
-          <p className="mt-4 rounded-xl bg-bg p-6 text-center text-base text-ink-muted">لا نتائج بعد.</p>
+          <p className="mt-4 rounded-xl bg-bg p-6 text-center text-base text-ink-muted">
+            {selectedWeek === 'all' ? 'لا نتائج بعد.' : `لا محاولات في الأسبوع ${selectedWeek} بعد.`}
+          </p>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
@@ -353,7 +439,7 @@ export default function GradesTab() {
                   <th className="p-3 text-start">#</th>
                   <th className="p-3 text-start">الطالب</th>
                   <th className="p-3 text-start">الرقم</th>
-                  <th className="p-3 text-start">النشاط</th>
+                  {selectedWeek === 'all' && <th className="p-3 text-start">الأسبوع</th>}
                   <th className="p-3 text-start">آلية</th>
                   <th className="p-3 text-start">يدوية</th>
                   <th className="p-3 text-start">المجموع</th>
@@ -371,9 +457,13 @@ export default function GradesTab() {
                       <td className="p-3">{i + 1}</td>
                       <td className="p-3 text-base font-semibold text-ink">{r.student_name}</td>
                       <td className="p-3 font-mono text-xs text-ink-muted" dir="ltr">{r.student_no ?? '—'}</td>
-                      <td className="p-3">
-                        <div className="text-ink">الأسبوع {r.week_number}: {r.activity_title}</div>
-                      </td>
+                      {selectedWeek === 'all' && (
+                        <td className="p-3">
+                          <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-bold text-primary">
+                            أ{r.week_number}
+                          </span>
+                        </td>
+                      )}
                       <td className="p-3 font-semibold text-primary">{r.auto_score}</td>
                       <td className="p-3">{r.manual_score ?? '—'}</td>
                       <td className="p-3 text-lg font-bold text-secondary">
@@ -401,13 +491,17 @@ export default function GradesTab() {
         )}
       </section>
 
+      {/* لوحة التصحيح */}
       {gradingRow && (
         <section className={card}>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-2xl font-bold text-primary">تصحيح — {gradingRow.student_name}</h3>
               <p className="mt-1 text-sm text-ink-muted">
-                الأسبوع {gradingRow.week_number}: {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}
+                <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-bold text-primary">
+                  الأسبوع {gradingRow.week_number}
+                </span>
+                {' '}— {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}
               </p>
             </div>
             <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
@@ -534,6 +628,22 @@ export default function GradesTab() {
           </div>
         </section>
       )}
+    </div>
+  )
+}
+
+function StatCard({ label, value, tone }: { label: string; value: string; tone: 'primary' | 'success' | 'info' | 'error' }) {
+  const tones: Record<string, { bg: string; text: string; border: string }> = {
+    primary: { bg: 'bg-primary-soft', text: 'text-primary', border: 'border-s-primary' },
+    success: { bg: 'bg-secondary-soft', text: 'text-secondary', border: 'border-s-secondary' },
+    info:    { bg: 'bg-accent-soft/40', text: 'text-primary', border: 'border-s-accent' },
+    error:   { bg: 'bg-error-soft', text: 'text-error', border: 'border-s-error' },
+  }
+  const t = tones[tone]
+  return (
+    <div className={`rounded-2xl border border-light-blue border-s-4 ${t.bg} p-4 shadow-sm ${t.border}`}>
+      <div className="text-xs font-semibold text-ink-muted">{label}</div>
+      <div className={`mt-1 text-2xl font-bold ${t.text}`}>{value}</div>
     </div>
   )
 }
