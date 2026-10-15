@@ -11,7 +11,14 @@ const label = 'text-base font-semibold text-primary'
 type QType = 'mcq' | 'tf' | 'essay_smart' | 'essay_reasoning'
 type View = 'questions' | 'results'
 
-interface Activity { id: string; week_id: string; title: string; open: boolean; release: string }
+interface Activity {
+  id: string
+  week_id: string
+  title: string
+  open: boolean
+  release: string
+  published_at: string | null
+}
 interface Week { id: string; number: number; title: string }
 interface Question { id: string; type: QType; text: string; score: number }
 interface Option { id: string; question_id: string; label: string; text: string; position: number }
@@ -111,7 +118,7 @@ export default function QuizSetsTab() {
   const loadActivities = useCallback(async () => {
     if (!supabase) return
     const [a, w] = await Promise.all([
-      supabase.from('activities').select('id,week_id,title,open,release').order('created_at'),
+      supabase.from('activities').select('id,week_id,title,open,release,published_at').order('created_at'),
       supabase.from('weeks').select('id,number,title').order('number'),
     ])
     if (a.error || w.error) { setError('تعذّر التحميل.'); setLoading(false); return }
@@ -302,6 +309,25 @@ export default function QuizSetsTab() {
     setBusy(false); await loadActivities()
   }
 
+  async function publishActivity() {
+    if (!supabase || !selectedId) return
+    const act = activities.find((a) => a.id === selectedId)
+    if (!act) return
+    const alreadyPublished = !!act.published_at
+    const msg = alreadyPublished
+      ? `إلغاء نشر «${act.title}»؟\n\nلن يظهر في صدارة المنصة حتى تنشر نشاطًا آخر.`
+      : `نشر «${act.title}» كصدارة المنصة الحالية؟\n\nسيتحوّل إليه عرض الأوائل، ويفتح تلقائيًا للطلاب.`
+    if (!window.confirm(msg)) return
+    setBusy(true); setError(null)
+    const { error: rpcErr } = await supabase.rpc('publish_activity', {
+      p_activity_id: selectedId,
+      p_publish: !alreadyPublished,
+    })
+    setBusy(false)
+    if (rpcErr) { setError('تعذّر التغيير: ' + rpcErr.message); return }
+    await loadActivities()
+  }
+
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
   const selAct = activities.find((a) => a.id === selectedId)
@@ -325,15 +351,28 @@ export default function QuizSetsTab() {
             <p className="mt-1 text-base text-white/85">إدارة الأسئلة، عرض نتائج الطلاب، والتصحيح اليدوي.</p>
           </div>
           {selAct && (
-            <button
-              className={(selAct.open
-                ? 'bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/30'
-                : 'bg-white text-primary hover:bg-primary-soft') + ' rounded-xl px-5 py-2.5 text-base font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'}
-              onClick={() => void toggleActivity()}
-              disabled={busy}
-            >
-              {selAct.open ? 'إغلاق النشاط للطلاب' : 'فتح النشاط للطلاب'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className={(selAct.open
+                  ? 'bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/30'
+                  : 'bg-white text-primary hover:bg-primary-soft') + ' rounded-xl px-5 py-2.5 text-base font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'}
+                onClick={() => void toggleActivity()}
+                disabled={busy}
+                title="يسمح للطلاب برؤية النشاط والاختبار فيه"
+              >
+                {selAct.open ? '🔓 مفتوح للطلاب' : '🔒 فتح للطلاب'}
+              </button>
+              <button
+                className={(selAct.published_at
+                  ? 'bg-secondary text-white hover:bg-secondary-hover ring-1 ring-white/40'
+                  : 'bg-warning text-ink hover:bg-warning/80') + ' rounded-xl px-5 py-2.5 text-base font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60'}
+                onClick={() => void publishActivity()}
+                disabled={busy}
+                title="يُظهر أوائل هذا الأسبوع في صدارة المنصة"
+              >
+                {selAct.published_at ? '⭐ منشور (الصدارة)' : '📢 نشر كصدارة'}
+              </button>
+            </div>
           )}
         </div>
 
@@ -347,7 +386,8 @@ export default function QuizSetsTab() {
               >
                 {activities.map((a) => {
                   const w = weeks.find((x) => x.id === a.week_id)
-                  return <option key={a.id} value={a.id} className="text-ink">الأسبوع {w?.number ?? '?'}: {a.title}</option>
+                  const flags = `${a.published_at ? '⭐ ' : ''}${a.open ? '🔓' : '🔒'}`
+                  return <option key={a.id} value={a.id} className="text-ink">{flags} الأسبوع {w?.number ?? '?'}: {a.title}</option>
                 })}
               </select>
 
