@@ -287,19 +287,19 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
         {/* ============ الملخص ============ */}
         <section style={{ marginTop: '10px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
-            <SummaryCard label="عدد الطلاب" value={String(total_students)} tone="primary" />
+            <SummaryCard icon="👥" label="عدد الطلاب" value={String(total_students)} tone="primary" />
             {isGrades && (
               <>
-                <SummaryCard label="متوسط النتائج" value={`${classAvg}%`} tone={classAvg >= 70 ? 'success' : classAvg >= 50 ? 'info' : 'error'} />
-                <SummaryCard label="أعلى نتيجة" value={`${topPercent}%`} tone="success" />
-                <SummaryCard label="أدنى نتيجة" value={graded.length > 0 ? `${lowPercent}%` : '—'} tone={lowPercent < 50 ? 'error' : 'ink'} />
+                <SummaryCard icon="📊" label="متوسط النتائج" value={`${classAvg}%`} tone={classAvg >= 70 ? 'success' : classAvg >= 50 ? 'info' : 'error'} />
+                <SummaryCard icon="🏆" label="أعلى نتيجة" value={graded.length > 0 ? `${topPercent}%` : '—'} tone="success" />
+                <SummaryCard icon="📉" label="أدنى نتيجة" value={graded.length > 0 ? `${lowPercent}%` : '—'} tone={lowPercent < 50 ? 'error' : 'info'} />
               </>
             )}
             {isAtt && (
               <>
-                <SummaryCard label="متوسط الحضور" value={`${classAttPercent}%`} tone={classAttPercent >= 80 ? 'success' : classAttPercent >= 60 ? 'info' : 'error'} />
-                <SummaryCard label="إجمالي الحضور" value={`${totalAttPresent} / ${totalAttPossible}`} tone="success" />
-                <SummaryCard label="إجمالي الغياب" value={String(totalAttPossible - totalAttPresent)} tone={classAttPercent >= 80 ? 'ink' : 'error'} />
+                <SummaryCard icon="📈" label="متوسط الحضور" value={`${classAttPercent}%`} tone={classAttPercent >= 80 ? 'success' : classAttPercent >= 60 ? 'info' : 'error'} />
+                <SummaryCard icon="✅" label="إجمالي الحضور" value={`${totalAttPresent} / ${totalAttPossible}`} tone="success" />
+                <SummaryCard icon="🚫" label="إجمالي الغياب" value={String(totalAttPossible - totalAttPresent)} tone={classAttPercent >= 80 ? 'ink' : 'error'} />
               </>
             )}
           </div>
@@ -461,20 +461,37 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   )
 }
 
-function SummaryCard({ label, value, tone }: { label: string; value: string; tone: 'primary' | 'success' | 'info' | 'error' | 'ink' }) {
-  const tones: Record<string, { bg: string; border: string; text: string }> = {
-    primary: { bg: C.blueSoft, border: C.blue, text: C.blue },
-    success: { bg: C.greenSoft, border: C.green, text: C.green },
-    info:    { bg: C.cyanSoft, border: C.cyan, text: C.blue },
-    error:   { bg: C.redSoft, border: C.red, text: C.red },
-    ink:     { bg: C.paper, border: C.gray, text: C.ink },
+function SummaryCard({ label, value, tone, icon, hint }: { label: string; value: string; tone: 'primary' | 'success' | 'info' | 'error' | 'ink'; icon: string; hint?: string }) {
+  const tones: Record<string, { soft: string; accent: string; text: string }> = {
+    primary: { soft: C.blueSoft, accent: C.blue, text: C.blue },
+    success: { soft: C.greenSoft, accent: C.green, text: C.green },
+    info:    { soft: C.cyanSoft, accent: C.cyan, text: C.blue },
+    error:   { soft: C.redSoft, accent: C.red, text: C.red },
+    ink:     { soft: C.paper, accent: C.gray, text: C.ink },
   }
   const t = tones[tone]
   return (
-    <div style={{ padding: '6px 8px', background: t.bg, borderTop: `3px solid ${t.border}`, borderRadius: '5px', textAlign: 'center' }}>
-      <div style={{ fontSize: '10px', color: C.gray, fontWeight: 700 }}>{label}</div>
-      <div style={{ fontSize: '16px', fontWeight: 800, color: t.text, marginTop: '2px', fontVariantNumeric: 'tabular-nums' }}>
-        {value}
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 9px',
+      background: `linear-gradient(135deg, #FFFFFF 0%, ${t.soft} 100%)`,
+      border: `1px solid ${C.line}`, borderTop: `3px solid ${t.accent}`, borderRadius: '8px',
+      boxShadow: '0 1px 2px rgba(11,108,179,0.10)',
+    }}>
+      <div style={{
+        width: '28px', height: '28px', flexShrink: 0, borderRadius: '50%',
+        background: 'white', border: `1.5px solid ${t.accent}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', lineHeight: 1,
+      }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1, textAlign: 'center' }}>
+        <div style={{ fontSize: '10px', color: C.gray, fontWeight: 700, lineHeight: 1.4 }}>
+          {label}
+          {hint && <span style={{ fontSize: '8.5px', fontWeight: 500, marginRight: '3px' }}>{hint}</span>}
+        </div>
+        <div style={{ fontSize: '18px', fontWeight: 800, color: t.text, lineHeight: 1.3, fontVariantNumeric: 'tabular-nums' }}>
+          {value}
+        </div>
       </div>
     </div>
   )
