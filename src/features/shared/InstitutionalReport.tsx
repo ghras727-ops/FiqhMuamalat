@@ -116,7 +116,7 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
       className="print-area"
       style={{
         width: '210mm',
-        minHeight: '297mm',
+        minHeight: '285mm',
         background: 'white',
         color: C.ink,
         fontFamily: '"Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
@@ -129,6 +129,8 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
         flexDirection: 'column',
         WebkitPrintColorAdjust: 'exact',
         printColorAdjust: 'exact',
+        pageBreakInside: 'avoid',
+        breakInside: 'avoid',
       }}
     >
       <style>{`
