@@ -1,4 +1,5 @@
 import type React from 'react'
+import { useEffect, useRef } from 'react'
 
 interface WeekMeta { id: string; number: number; title: string }
 interface WeekData {
@@ -78,6 +79,94 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
   const { weeks, students, from_week, to_week, total_students } = snapshot
   const weeksCount = weeks.length
 
+  // الطباعة عبر iframe معزول يحتوي التقرير وحده، بعيدًا عن أي CSS أو مودال في التطبيق.
+  // أثناء عرض هذا المكوّن نستبدل window.print بنسخة تطبع الـ iframe، ثم نعيدها عند الإغلاق.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const originalPrint = window.print.bind(window)
+
+    const printIsolated = () => {
+      const el = rootRef.current
+      if (!el) { originalPrint(); return }
+
+      const iframe = document.createElement('iframe')
+      iframe.setAttribute('aria-hidden', 'true')
+      iframe.style.cssText =
+        'position:fixed;right:0;bottom:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;'
+      iframe.srcdoc =
+        '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">' +
+        '<style>@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:#fff}</style>' +
+        '</head><body>' + el.outerHTML + '</body></html>'
+
+      iframe.onload = async () => {
+        const w = iframe.contentWindow
+        const d = iframe.contentDocument
+        if (!w || !d) { iframe.remove(); return }
+        try { await d.fonts.ready } catch { /* تجاهل */ }
+        await Promise.all(
+          Array.from(d.images).map((img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise<void>((res) => { img.onload = () => res(); img.onerror = () => res() }),
+          ),
+        )
+        await new Promise((r) => setTimeout(r, 400)) // مهلة قصيرة لتحميل خط Cairo
+        w.focus()
+        w.print()
+        setTimeout(() => iframe.remove(), 60000)
+      }
+      document.body.appendChild(iframe)
+    }
+
+    // توليد PDF مباشر (صفحة A4 دقيقة) دون المرور بتقسيم المتصفح للصفحات
+    const exportPdf = async () => {
+      const el = rootRef.current
+      if (!el) throw new Error('no element')
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ])
+      try { await document.fonts.ready } catch { /* تجاهل */ }
+      const canvas = await html2canvas(el, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        onclone: (doc) => {
+          // توسيع الصفوف في الصورة الملتقطة فقط حتى لا تُقص الأسماء العربية من الأسفل
+          const st = doc.createElement('style')
+          st.textContent =
+            '.print-area td, .print-area th { line-height: 2.1 !important; padding-top: 5px !important; padding-bottom: 7px !important; overflow: visible !important; }' +
+            '.print-area td, .print-area th, .print-area span, .print-area div { letter-spacing: 0 !important; }'
+          doc.head.appendChild(st)
+        },
+      })
+      const img = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+      const pageW = 210
+      const pageH = 297
+      const imgH = (canvas.height * pageW) / canvas.width
+      if (imgH > pageH && imgH <= pageH * 1.12) {
+        // زيادة طفيفة: نصغّر قليلًا ليبقى التقرير في صفحة واحدة
+        const w = (pageW * pageH) / imgH
+        pdf.addImage(img, 'PNG', (pageW - w) / 2, 0, w, pageH, undefined, 'FAST')
+      } else {
+        pdf.addImage(img, 'PNG', 0, 0, pageW, imgH, undefined, 'FAST')
+        let left = imgH - pageH
+        let pos = 0
+        while (left > 1) {
+          pos -= pageH
+          pdf.addPage()
+          pdf.addImage(img, 'PNG', 0, pos, pageW, imgH, undefined, 'FAST')
+          left -= pageH
+        }
+      }
+      pdf.save(`institutional-report-weeks-${from_week}-${to_week}.pdf`)
+    }
+
+    window.print = () => { exportPdf().catch(() => printIsolated()) }
+    return () => { window.print = originalPrint }
+  }, [from_week, to_week])
+
   // حسابات النتائج
   const graded = students.filter((s) => s.percent !== null)
   const classAvg = graded.length === 0 ? 0
@@ -112,11 +201,12 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
 
   return (
     <div
+      ref={rootRef}
       dir="rtl"
       className="print-area"
       style={{
         width: '210mm',
-        minHeight: '285mm',
+        minHeight: '265mm',
         background: 'white',
         color: C.ink,
         fontFamily: '"Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
@@ -138,16 +228,13 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
         .print-area, .print-area * { font-family: "Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif; }
         @page { size: A4 portrait; margin: 0; }
         @media print {
-          html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
-          body * { visibility: hidden !important; }
-          .print-area, .print-area * { visibility: visible !important; }
+          html, body { margin: 0 !important; padding: 0 !important; background: white !important; height: auto !important; overflow: visible !important; }
           .print-area {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
-            position: absolute !important;
-            top: 0 !important; left: 0 !important;
+            position: static !important;
             width: 210mm !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
             box-shadow: none !important;
             border: none !important;
           }
