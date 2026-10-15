@@ -286,7 +286,7 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
 
         {/* ============ الملخص ============ */}
         <section style={{ marginTop: '10px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: isGrades ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)', gap: '6px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
             <SummaryCard label="عدد الطلاب" value={String(total_students)} tone="primary" />
             {isGrades && (
               <>
