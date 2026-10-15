@@ -1,5 +1,9 @@
 import type React from 'react'
 import { useEffect, useRef } from 'react'
+// خط Cairo محلي (نفس أصل التطبيق) ليُضمَّن داخل صورة التصدير ويطابق الشاشة تمامًا
+import '@fontsource/cairo/400.css'
+import '@fontsource/cairo/700.css'
+import '@fontsource/cairo/800.css'
 
 interface WeekMeta { id: string; number: number; title: string }
 interface WeekData {
@@ -122,48 +126,65 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
     const exportPdf = async () => {
       const el = rootRef.current
       if (!el) throw new Error('no element')
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import('html2canvas'),
+      const [{ toJpeg }, { jsPDF }] = await Promise.all([
+        import('html-to-image'),
         import('jspdf'),
       ])
-      try { await document.fonts.ready } catch { /* تجاهل */ }
-      const canvas = await html2canvas(el, {
-        scale: 3,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        onclone: (doc) => {
-          // توسيع الصفوف في الصورة الملتقطة فقط حتى لا تُقص الأسماء العربية من الأسفل
-          const st = doc.createElement('style')
-          st.textContent =
-            '.print-area td, .print-area th { line-height: 2.1 !important; padding-top: 5px !important; padding-bottom: 7px !important; overflow: visible !important; }' +
-            '.print-area td, .print-area th, .print-area span, .print-area div { letter-spacing: 0 !important; }'
-          doc.head.appendChild(st)
-        },
-      })
-      const img = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+      try {
+        await Promise.all([
+          document.fonts.load('400 12px Cairo', 'أب1'),
+          document.fonts.load('700 12px Cairo', 'أب1'),
+          document.fonts.load('800 12px Cairo', 'أب1'),
+        ])
+        await document.fonts.ready
+      } catch { /* تجاهل */ }
+      // المتصفح نفسه يرسم التقرير (نفس ما تراه على الشاشة تمامًا)، دون أي تعديل على التنسيق
+      const opts = {
+        pixelRatio: 3, quality: 0.98, backgroundColor: '#ffffff', cacheBust: true,
+      }
+      // نلغي هامش التوسيط (auto) مؤقتًا كي لا ينتقل إلى الصورة فيزاح التقرير
+      const prevMargin = el.style.margin
+      el.style.margin = '0'
+      let img: string
+      try {
+        await toJpeg(el, opts) // تسخين: أول استدعاء قد لا يحمّل الخطوط والصور بعد
+        img = await toJpeg(el, opts)
+      } finally {
+        el.style.margin = prevMargin
+      }
+      const probe = new Image()
+      probe.src = img
+      await probe.decode()
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const pageW = 210
       const pageH = 297
-      const imgH = (canvas.height * pageW) / canvas.width
+      const imgH = (probe.height * pageW) / probe.width
       if (imgH > pageH && imgH <= pageH * 1.12) {
         // زيادة طفيفة: نصغّر قليلًا ليبقى التقرير في صفحة واحدة
         const w = (pageW * pageH) / imgH
-        pdf.addImage(img, 'PNG', (pageW - w) / 2, 0, w, pageH, undefined, 'FAST')
+        pdf.addImage(img, 'JPEG', (pageW - w) / 2, 0, w, pageH)
       } else {
-        pdf.addImage(img, 'PNG', 0, 0, pageW, imgH, undefined, 'FAST')
+        pdf.addImage(img, 'JPEG', 0, 0, pageW, imgH)
         let left = imgH - pageH
         let pos = 0
         while (left > 1) {
           pos -= pageH
           pdf.addPage()
-          pdf.addImage(img, 'PNG', 0, pos, pageW, imgH, undefined, 'FAST')
+          pdf.addImage(img, 'JPEG', 0, pos, pageW, imgH)
           left -= pageH
         }
       }
       pdf.save(`institutional-report-weeks-${from_week}-${to_week}.pdf`)
     }
 
-    window.print = () => { exportPdf().catch(() => printIsolated()) }
+    window.print = () => {
+      exportPdf().catch((err: unknown) => {
+        console.error('PDF export failed:', err)
+        const msg = err instanceof Error ? err.message : String(err)
+        alert('تعذّر توليد ملف PDF:\n' + msg + '\n\nسيتم فتح نافذة الطباعة بدلًا منه.')
+        printIsolated()
+      })
+    }
     return () => { window.print = originalPrint }
   }, [from_week, to_week])
 
@@ -206,7 +227,7 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
       className="print-area"
       style={{
         width: '210mm',
-        minHeight: '265mm',
+        minHeight: '297mm',
         background: 'white',
         color: C.ink,
         fontFamily: '"Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
@@ -224,7 +245,6 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
         .print-area, .print-area * { font-family: "Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif; }
         @page { size: A4 portrait; margin: 0; }
         @media print {
@@ -389,7 +409,7 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
               </tbody>
             </table>
 
-            <div style={{ marginTop: '8px', display: 'flex', gap: '16px', fontSize: '10px', color: C.gray }}>
+            <div style={{ marginTop: '8px', marginBottom: '14px', paddingBottom: '4px', display: 'flex', gap: '16px', fontSize: '10px', lineHeight: 1.8, color: C.gray }}>
               <span><b style={{ color: C.green }}>✓</b> حاضر</span>
               <span><b style={{ color: C.red }}>✗</b> غائب</span>
               <span><b style={{ color: C.blue }}>ع</b> معذور (يُحسب غائبًا في عمود الحضور)</span>
@@ -405,17 +425,16 @@ export default function InstitutionalReport({ snapshot, generatedAt, mode }: Pro
               <div><b style={{ color: C.blue }}>تاريخ الإصدار:</b> {fmtDate(generatedAt)}</div>
               <div><b style={{ color: C.blue }}>العام الدراسي:</b> 1448هـ — 2026م</div>
             </div>
-            <div style={{ position: 'relative', width: '180px', height: '70px', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+            <div style={{ width: '240px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <img
                 src="/signature.png"
                 alt="توقيع المدرس"
                 style={{
-                  position: 'absolute',
-                  top: '-4px', left: '50%', transform: 'translateX(-50%)',
-                  width: '160px', height: '55px', objectFit: 'contain', opacity: 0.92,
+                  height: '72px', width: 'auto', maxWidth: '240px',
+                  display: 'block', opacity: 0.92, marginBottom: '2px',
                 }}
               />
-              <div style={{ width: '170px', borderTop: `1.5px solid ${C.blue}`, paddingTop: '2px', textAlign: 'center', fontSize: '11px', fontWeight: 700, color: C.blue }}>
+              <div style={{ width: '220px', borderTop: `1.5px solid ${C.blue}`, paddingTop: '2px', textAlign: 'center', fontSize: '11px', fontWeight: 700, color: C.blue }}>
                 {TEACHER}
               </div>
             </div>
