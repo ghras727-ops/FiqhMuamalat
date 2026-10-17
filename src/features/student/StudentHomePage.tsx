@@ -58,6 +58,22 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('ar-SA-u-nu-latn')
 }
 
+function formatTestDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    const day = String(d.getDate()).padStart(2, '0')
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    let hours = d.getHours()
+    const minutes = String(d.getMinutes()).padStart(2, '0')
+    const ampm = hours >= 12 ? 'م' : 'ص'
+    hours = hours % 12 || 12
+    return `${day}/${month} - ${hours}:${minutes} ${ampm}`
+  } catch {
+    return '—'
+  }
+}
+
 export default function StudentHomePage() {
   const { profile } = useAuth()
   const [tab, setTab] = useState('feed')
@@ -377,8 +393,7 @@ export default function StudentHomePage() {
                       <tr className="border-b border-light-blue">
                         <th className={th}>النشاط</th>
                         <th className={th}>الأسبوع</th>
-                        <th className={th}>الدرجة الآلية</th>
-                        <th className={th}>الدرجة اليدوية</th>
+                        <th className={th}>تاريخ الاختبار</th>
                         <th className={th}>المجموع</th>
                         <th className={th}>الحالة</th>
                       </tr>
@@ -398,8 +413,9 @@ export default function StudentHomePage() {
                             <tr key={a.id} className="border-b border-light-blue/50 hover:bg-bg">
                               <td className="p-3 text-base font-semibold text-ink">{a.title}</td>
                               <td className="p-3">الأسبوع {a.week_number}</td>
-                              <td className="p-3 font-semibold text-primary">{graded ? at.auto_score : '—'}</td>
-                              <td className="p-3">{graded ? (at.manual_score ?? '—') : '—'}</td>
+                              <td className="p-3 text-sm font-semibold text-ink-muted">
+                                <span dir="ltr">{formatTestDate(at.submitted_at)}</span>
+                              </td>
                               <td className="p-3 text-lg font-bold text-secondary" dir="ltr">
                                 {graded
                                   ? <>{cappedTotal.toFixed(1)} / {a.total_possible}</>

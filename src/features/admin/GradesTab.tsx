@@ -62,6 +62,22 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('ar-SA-u-nu-latn')
 }
 
+function formatTestDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    const day = String(d.getDate()).padStart(2, '0')
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    let hours = d.getHours()
+    const minutes = String(d.getMinutes()).padStart(2, '0')
+    const ampm = hours >= 12 ? 'م' : 'ص'
+    hours = hours % 12 || 12
+    return `${day}/${month} - ${hours}:${minutes} ${ampm}`
+  } catch {
+    return '—'
+  }
+}
+
 export default function GradesTab() {
   const [rows, setRows] = useState<AttemptRow[]>([])
   const [retakeRequests, setRetakeRequests] = useState<RetakeRequest[]>([])
@@ -440,8 +456,7 @@ export default function GradesTab() {
                   <th className="p-3 text-start">الطالب</th>
                   <th className="p-3 text-start">الرقم</th>
                   {selectedWeek === 'all' && <th className="p-3 text-start">الأسبوع</th>}
-                  <th className="p-3 text-start">آلية</th>
-                  <th className="p-3 text-start">يدوية</th>
+                  <th className="p-3 text-start">تاريخ الاختبار</th>
                   <th className="p-3 text-start">المجموع</th>
                   <th className="p-3 text-start">الحالة</th>
                   <th className="p-3 text-start">إجراء</th>
@@ -464,8 +479,9 @@ export default function GradesTab() {
                           </span>
                         </td>
                       )}
-                      <td className="p-3 font-semibold text-primary">{r.auto_score}</td>
-                      <td className="p-3">{r.manual_score ?? '—'}</td>
+                      <td className="p-3 text-sm font-semibold text-ink-muted">
+                        <span dir="ltr">{formatTestDate(r.submitted_at)}</span>
+                      </td>
                       <td className="p-3 text-lg font-bold text-secondary">
                         {cappedTotal.toFixed(1)} / {r.total_possible}
                         {overflow && <span className="ms-2 text-xs text-error">⚠</span>}
