@@ -118,9 +118,11 @@ export default function StudentAssignmentsTab() {
     setUploadStatus('uploading'); setUploadMessage('جارٍ رفع الملف...')
     
     try {
-      const { data: userData } = await supabase.auth.getUser()
-      const userId = userData.user?.id
-      if (!userId) throw new Error('تعذّر التعرف على حساب الطالب.')
+      // جلب معرف الطالب من الجلسة بدقة
+      const { data: { session } } = await supabase.auth.getSession()
+      const userId = session?.user?.id
+      
+      if (!userId) throw new Error('انتهت الجلسة. يرجى تسجيل الدخول من جديد.')
 
       const uuid = crypto.randomUUID()
       const path = `assignments/${activeAsg.id}/${userId}/${uuid}.pdf`
@@ -137,16 +139,18 @@ export default function StudentAssignmentsTab() {
 
       if (existing) {
         const { error: upErr2 } = await supabase.from('assignment_submissions').update({
-          status: 'submitted', student_note: note.trim() || null, submitted_at: new Date().toISOString()
+          status: 'submitted', 
+          student_note: note.trim() || null, 
+          submitted_at: new Date().toISOString()
         }).eq('id', existing.id)
         if (upErr2) throw upErr2
         
-        // مسح الملفات القديمة إن وجدت
+        // مسح الملفات القديمة
         await supabase.from('assignment_files').delete().eq('submission_id', existing.id)
       } else {
         const { data: newSub, error: insErr } = await supabase.from('assignment_submissions').insert({
           assignment_id: activeAsg.id, 
-          student_id: userId, // ⬅️ السطر المفقود الذي كان يسبب المشكلة
+          student_id: userId, 
           status: 'submitted', 
           student_note: note.trim() || null, 
           submitted_at: new Date().toISOString()
@@ -167,7 +171,6 @@ export default function StudentAssignmentsTab() {
 
       setUploadStatus('success'); setUploadMessage('✅ تم تسليم البحث بنجاح!')
       
-      // الانتظار ثانيتين لإغلاق النافذة
       setTimeout(() => {
         setActiveAsg(null); setFile(null); setNote('')
         setUploadStatus('idle'); setUploadMessage('')
