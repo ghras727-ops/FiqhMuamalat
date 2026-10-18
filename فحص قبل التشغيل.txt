@@ -4,3 +4,16 @@ powershell
 
 cd D:\FiqhMuamalat
 .\Push.ps1 "وصف مختصر للتعديل"
+
+
+البناء
+
+cd D:\FiqhMuamalat
+npm run build
+
+
+
+
+النشر
+
+.\Push.ps1 "نشر النشاط: زر مستقل عن الفتح + ربط الصدارة بـ published_at"
