@@ -41,6 +41,8 @@ export default function StudentAssignmentsTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
+  const [uploadMessage, setUploadMessage] = useState('')
 
   // حالة الرفع
   const [activeAsg, setActiveAsg] = useState<Assignment | null>(null)
@@ -113,6 +115,8 @@ export default function StudentAssignmentsTab() {
     if (file.type !== 'application/pdf') { setError('يُسمح بملفات PDF فقط.'); return }
 
     setBusy(true); setError(null)
+    setUploadStatus('uploading'); setUploadMessage('جارٍ رفع الملف...')
+    
     try {
       const uuid = crypto.randomUUID()
       const path = `assignments/${activeAsg.id}/${(await supabase.auth.getUser()).data.user?.id}/${uuid}.pdf`
@@ -120,6 +124,8 @@ export default function StudentAssignmentsTab() {
       // 1. رفع الملف
       const { error: upErr } = await supabase.storage.from('course-files').upload(path, file, { contentType: 'application/pdf' })
       if (upErr) throw new Error('فشل رفع الملف: ' + upErr.message)
+
+      setUploadMessage('جارٍ حفظ البيانات...')
 
       // 2. إنشاء أو تحديث التسليم
       const existing = submissions[activeAsg.id]
@@ -145,11 +151,17 @@ export default function StudentAssignmentsTab() {
         submission_id: subId, file_path: path, file_name: file.name, file_size: file.size
       })
 
-      setActiveAsg(null); setFile(null); setNote('')
-      await loadData()
+      setUploadStatus('success'); setUploadMessage('✅ تم تسليم البحث بنجاح!')
+      
+      // الانتظار ثانيتين لإغلاق النافذة
+      setTimeout(() => {
+        setActiveAsg(null); setFile(null); setNote('')
+        setUploadStatus('idle'); setUploadMessage('')
+        void loadData()
+      }, 2000)
+
     } catch (err: any) {
-      setError(err.message)
-    } finally {
+      setUploadStatus('error'); setUploadMessage('❌ ' + err.message)
       setBusy(false)
     }
   }
@@ -274,11 +286,17 @@ export default function StudentAssignmentsTab() {
               </div>
             </div>
 
+            {uploadStatus !== 'idle' && (
+              <div className={`mt-4 rounded-xl p-3 text-center font-bold ${uploadStatus === 'success' ? 'bg-secondary-soft text-secondary' : uploadStatus === 'error' ? 'bg-error-soft text-error' : 'bg-primary-soft text-primary'}`}>
+                {uploadMessage}
+              </div>
+            )}
+
             <div className="mt-6 flex gap-2">
-              <button className={btn} onClick={() => void submitAssignment()} disabled={busy}>
-                {busy ? 'جارٍ الرفع...' : 'تسليم البحث'}
+              <button className={btn} onClick={() => void submitAssignment()} disabled={busy || uploadStatus === 'success'}>
+                {uploadStatus === 'uploading' ? 'جارٍ الرفع...' : 'تسليم البحث'}
               </button>
-              <button className={btnOutline} onClick={() => { setActiveAsg(null); setFile(null); setNote(''); }} disabled={busy}>إلغاء</button>
+              <button className={btnOutline} onClick={() => { setActiveAsg(null); setFile(null); setNote(''); setUploadStatus('idle'); setUploadMessage(''); }} disabled={busy}>إلغاء</button>
             </div>
           </div>
         </div>
