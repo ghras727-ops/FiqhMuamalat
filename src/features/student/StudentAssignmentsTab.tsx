@@ -118,8 +118,12 @@ export default function StudentAssignmentsTab() {
     setUploadStatus('uploading'); setUploadMessage('جارٍ رفع الملف...')
     
     try {
+      const { data: userData } = await supabase.auth.getUser()
+      const userId = userData.user?.id
+      if (!userId) throw new Error('تعذّر التعرف على حساب الطالب.')
+
       const uuid = crypto.randomUUID()
-      const path = `assignments/${activeAsg.id}/${(await supabase.auth.getUser()).data.user?.id}/${uuid}.pdf`
+      const path = `assignments/${activeAsg.id}/${userId}/${uuid}.pdf`
 
       // 1. رفع الملف
       const { error: upErr } = await supabase.storage.from('course-files').upload(path, file, { contentType: 'application/pdf' })
@@ -132,24 +136,34 @@ export default function StudentAssignmentsTab() {
       let subId = existing?.id
 
       if (existing) {
-        await supabase.from('assignment_submissions').update({
+        const { error: upErr2 } = await supabase.from('assignment_submissions').update({
           status: 'submitted', student_note: note.trim() || null, submitted_at: new Date().toISOString()
         }).eq('id', existing.id)
+        if (upErr2) throw upErr2
         
         // مسح الملفات القديمة إن وجدت
         await supabase.from('assignment_files').delete().eq('submission_id', existing.id)
       } else {
         const { data: newSub, error: insErr } = await supabase.from('assignment_submissions').insert({
-          assignment_id: activeAsg.id, status: 'submitted', student_note: note.trim() || null, submitted_at: new Date().toISOString()
+          assignment_id: activeAsg.id, 
+          student_id: userId, // ⬅️ السطر المفقود الذي كان يسبب المشكلة
+          status: 'submitted', 
+          student_note: note.trim() || null, 
+          submitted_at: new Date().toISOString()
         }).select('id').single()
+        
         if (insErr) throw insErr
         subId = newSub.id
       }
 
       // 3. ربط الملف
-      await supabase.from('assignment_files').insert({
-        submission_id: subId, file_path: path, file_name: file.name, file_size: file.size
+      const { error: fileErr } = await supabase.from('assignment_files').insert({
+        submission_id: subId, 
+        file_path: path, 
+        file_name: file.name, 
+        file_size: file.size
       })
+      if (fileErr) throw fileErr
 
       setUploadStatus('success'); setUploadMessage('✅ تم تسليم البحث بنجاح!')
       
@@ -161,7 +175,7 @@ export default function StudentAssignmentsTab() {
       }, 2000)
 
     } catch (err: any) {
-      setUploadStatus('error'); setUploadMessage('❌ ' + err.message)
+      setUploadStatus('error'); setUploadMessage('❌ ' + (err.message || 'حدث خطأ غير متوقع.'))
       setBusy(false)
     }
   }
