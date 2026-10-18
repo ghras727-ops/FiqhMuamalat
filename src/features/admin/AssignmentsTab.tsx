@@ -64,6 +64,7 @@ export default function AssignmentsTab() {
 
   // نافذة التصحيح
   const [gradingSub, setGradingSub] = useState<Submission | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [scoreInput, setScoreInput] = useState('')
   const [noteInput, setNoteInput] = useState('')
 
@@ -135,13 +136,16 @@ export default function AssignmentsTab() {
     setGradingSub(sub)
     setScoreInput(sub.score !== null ? String(sub.score) : '')
     setNoteInput(sub.teacher_note || '')
+    setPdfUrl(null) // تصفير الرابط السابق
     
-    // توليد رابط مؤقت لملف PDF (بافتراض ملف واحد حالياً)
+    // جلب رابط مؤقت للملف
     if (sub.assignment_files.length > 0 && supabase) {
       const path = sub.assignment_files[0].file_path
-      const { data } = await supabase.storage.from('course-files').createSignedUrl(path, 3600)
-      if (data?.signedUrl) {
-        // سنحتفظ بالرابط في الـ state
+      const { data, error } = await supabase.storage.from('course-files').createSignedUrl(path, 3600)
+      if (!error && data?.signedUrl) {
+        setPdfUrl(data.signedUrl)
+      } else {
+        setError('تعذّر جلب ملف الـ PDF.')
       }
     }
   }
@@ -164,7 +168,7 @@ export default function AssignmentsTab() {
       .eq('id', gradingSub.id)
     setBusy(false)
     if (err) { setError(err.message); return }
-    setGradingSub(null); setScoreInput(''); setNoteInput('')
+    setGradingSub(null); setScoreInput(''); setNoteInput(''); setPdfUrl(null)
     if (selectedAsg) await loadSubmissions(selectedAsg.id)
   }
 
@@ -275,11 +279,26 @@ export default function AssignmentsTab() {
               
               <div className="flex-1 overflow-y-auto p-4 flex gap-4">
                 {/* عرض الملف */}
-                <div className="w-2/3 bg-bg rounded-xl border border-light-blue">
-                  {gradingSub.assignment_files.length > 0 ? (
-                    <iframe src={gradingSub.assignment_files[0].file_path} className="w-full h-[60vh] rounded-xl" title="PDF" />
+                <div className="w-2/3 bg-bg rounded-xl border border-light-blue flex flex-col">
+                  {pdfUrl ? (
+                    <>
+                      <div className="p-2 bg-white border-b flex justify-between items-center">
+                        <span className="text-sm font-bold text-ink">📄 ملف البحث (PDF)</span>
+                        <a
+                          href={pdfUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm font-bold text-primary hover:underline"
+                        >
+                          ⬇️ تحميل / فتح في نافذة جديدة
+                        </a>
+                      </div>
+                      <iframe src={pdfUrl} className="w-full flex-1 rounded-b-xl min-h-[60vh]" title="PDF" />
+                    </>
                   ) : (
-                    <div className="flex h-full items-center justify-center text-ink-muted">لا توجد ملفات مرفقة.</div>
+                    <div className="flex h-full items-center justify-center text-ink-muted">
+                      {gradingSub.assignment_files.length > 0 ? '⏳ جارٍ تحميل الملف...' : 'لا توجد ملفات مرفقة.'}
+                    </div>
                   )}
                 </div>
 
