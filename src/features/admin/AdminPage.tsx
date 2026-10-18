@@ -3,13 +3,13 @@ import AppShell, { type ShellTab } from '../../components/AppShell'
 import AttendanceTab from './AttendanceTab'
 import GradesTab from './GradesTab'
 import HomeTab from './HomeTab'
-import MaterialsTab from './MaterialsTab'
 import PostsTab from './PostsTab'
 import QuizSetsTab from './QuizSetsTab'
 import ReportsTab from './ReportsTab'
 import StudentsTab from './StudentsTab'
 import TablesTab from './TablesTab'
 import WeeksTab from './WeeksTab'
+import AssignmentsTab from './AssignmentsTab' // ⬅️ تم استبدال MaterialsTab بـ AssignmentsTab
 
 const TABS: ShellTab[] = [
   { key: 'home', label: 'الرئيسة' },
@@ -17,7 +17,7 @@ const TABS: ShellTab[] = [
   { key: 'students', label: 'الطلاب' },
   { key: 'attendance', label: 'الحضور والغياب' },
   { key: 'weeks', label: 'الأسابيع والدروس' },
-  { key: 'materials', label: 'المواد' },
+  { key: 'assignments', label: 'التكاليف' }, // ⬅️ التبويب الجديد
   { key: 'bank', label: 'بنك الأسئلة' },
   { key: 'grades', label: 'الدرجات' },
   { key: 'reports', label: 'التقارير' },
@@ -38,7 +38,7 @@ export default function AdminPage() {
     { key: 'students', node: <StudentsTab /> },
     { key: 'attendance', node: <AttendanceTab /> },
     { key: 'weeks', node: <WeeksTab /> },
-    { key: 'materials', node: <MaterialsTab /> },
+    { key: 'assignments', node: <AssignmentsTab /> }, // ⬅️ المكون الجديد
     { key: 'bank', node: <QuizSetsTab /> },
     { key: 'grades', node: <GradesTab /> },
     { key: 'reports', node: <ReportsTab /> },
