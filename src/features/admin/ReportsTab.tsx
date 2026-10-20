@@ -195,8 +195,9 @@ export default function ReportsTab() {
         }
       }
 
+      // ⬇️ الإصلاح: نضيف المقام دائماً، والدرجة فقط عند التصحيح
+      sumTotal += r.total_possible
       if (r.has_attempt && r.status === 'graded') {
-        sumTotal += r.total_possible
         sumScore += r.final_score
       }
 
@@ -327,7 +328,7 @@ export default function ReportsTab() {
   const revokedReports = reports.filter((r) => r.status === 'revoked')
 
   const inRange = studentRows.filter((r) => r.week_number >= fromWeek && r.week_number <= toWeek)
-  const sumTotal = inRange.reduce((s, r) => s + (r.has_attempt && r.status === 'graded' ? r.total_possible : 0), 0)
+  const sumTotal = inRange.reduce((s, r) => s + r.total_possible, 0)
   const sumScore = inRange.reduce((s, r) => s + (r.has_attempt && r.status === 'graded' ? r.final_score : 0), 0)
   const sumPercent = sumTotal > 0 ? Math.round((sumScore / sumTotal) * 100) : 0
 
