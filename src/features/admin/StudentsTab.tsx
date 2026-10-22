@@ -35,6 +35,9 @@ export default function StudentsTab() {
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<CreatedRow[] | null>(null)
 
+  // حالة نافذة كلمة المرور المؤقتة
+  const [tempPassword, setTempPassword] = useState<{ name: string; pass: string } | null>(null)
+
   // edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -144,6 +147,24 @@ export default function StudentsTab() {
     const count = (data as { deleted_attempts?: number } | null)?.deleted_attempts ?? 0
     setSuccess(`تم حذف الطالب و${count} محاولة مرتبطة به.`)
     await load()
+  }
+
+  async function resetPassword(r: StudentRow) {
+    if (!supabase) return
+    if (!window.confirm(`تصفير كلمة مرور الطالب «${r.full_name}»؟\n\nسيتمكن من الدخول بكلمة مرور مؤقتة، وسيُجبر على تغييرها فوراً. بياناته ودرجاته لن تتأثر.`)) return
+
+    setBusy(true); setError(null); setSuccess(null)
+    const { data, error: fnErr } = await supabase.functions.invoke('reset-student-password', {
+      body: { student_id: r.id }
+    })
+    setBusy(false)
+
+    if (fnErr || !data?.success) {
+      setError('تعذّر تصفير كلمة المرور. حاول مرة أخرى.')
+      return
+    }
+
+    setTempPassword({ name: r.full_name, pass: data.password })
   }
 
   function copyCreated() {
@@ -290,6 +311,9 @@ export default function StudentsTab() {
                           </td>
                           <td className="p-2">
                             <div className="flex flex-wrap gap-1">
+                              <button className={btnOutline} onClick={() => void resetPassword(r)} disabled={busy} title="توليد كلمة مرور مؤقتة للطالب">
+                                🔑 تصفير المرور
+                              </button>
                               <button className={btnOutline} onClick={() => toggleActive(r)} disabled={busy}>
                                 {r.active ? 'تعطيل' : 'تفعيل'}
                               </button>
@@ -311,6 +335,27 @@ export default function StudentsTab() {
           </div>
         )}
       </section>
+
+      {/* نافذة عرض كلمة المرور المؤقتة */}
+      {tempPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center">
+            <h3 className="text-xl font-bold text-primary mb-2">تم تصفير كلمة المرور</h3>
+            <p className="text-ink mb-4">الطالب: <b>{tempPassword.name}</b></p>
+
+            <div className="rounded-xl bg-warning-soft p-4 text-2xl font-mono font-bold text-ink mb-4 ring-1 ring-warning tracking-widest" dir="ltr">
+              {tempPassword.pass}
+            </div>
+
+            <p className="text-sm text-error font-semibold mb-6">⚠️ اعطِ هذه الكلمة للطالب. سيُطلب منه تغييرها فور دخوله.</p>
+
+            <div className="flex gap-2 justify-center">
+              <button className={btn} onClick={() => { navigator.clipboard.writeText(tempPassword.pass); alert('تم النسخ!') }}>نسخ الكلمة</button>
+              <button className={btnOutline} onClick={() => setTempPassword(null)}>إغلاق</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
