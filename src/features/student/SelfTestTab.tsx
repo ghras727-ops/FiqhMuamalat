@@ -139,20 +139,36 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   async function loadExamData(activityId: string) {
     if (!supabase) return null
-    const [qRes, aqRes, oRes] = await Promise.all([
-      supabase.from('questions').select('id,type,text,score'),
-      supabase.from('activity_questions').select('activity_id,question_id,position').eq('activity_id', activityId).order('position'),
-      supabase.from('question_options').select('id,question_id,label,text,position').order('position'),
-    ])
-    if (qRes.error || aqRes.error || oRes.error) return null
-    const aqList = (aqRes.data ?? []) as AQ[]
-    const ids = new Set(aqList.map((x) => x.question_id))
-    const qs = ((qRes.data ?? []) as Question[]).filter((q) => ids.has(q.id))
-    const om: Record<string, Option[]> = {}
-    for (const o of (oRes.data ?? []) as Option[]) {
-      if (ids.has(o.question_id)) (om[o.question_id] ??= []).push(o)
+    
+    // ⬇️ استخدام دالة السحب الذكية الجديدة
+    const { data, error } = await supabase.rpc('get_activity_questions', { p_activity_id: activityId })
+    if (error || !data) {
+      console.error(error)
+      return null
     }
-    return { questions: qs, options: om, aq: aqList }
+
+    // تحويل البيانات القادمة من الدالة إلى الشكل الذي تفهمه الواجهة
+    const rawQuestions = data as any[]
+    const qs: Question[] = []
+    const om: Record<string, Option[]> = {}
+    const aqs: AQ[] = []
+
+    for (const item of rawQuestions) {
+      qs.push({
+        id: item.id,
+        type: item.type as QType,
+        text: item.text,
+        score: item.score
+      })
+      om[item.id] = item.options || []
+      aqs.push({
+        activity_id: activityId,
+        question_id: item.id,
+        position: item.position
+      })
+    }
+
+    return { questions: qs, options: om, aq: aqs }
   }
 
   async function loadNotes(activityId: string) {

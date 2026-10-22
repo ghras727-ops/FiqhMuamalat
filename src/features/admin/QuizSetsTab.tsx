@@ -18,6 +18,7 @@ interface Activity {
   open: boolean
   release: string
   published_at: string | null
+  randomize_questions?: boolean // ⬅️ السطر الجديد
 }
 interface Week { id: string; number: number; title: string }
 interface Question { id: string; type: QType; text: string; score: number }
@@ -118,7 +119,7 @@ export default function QuizSetsTab() {
   const loadActivities = useCallback(async () => {
     if (!supabase) return
     const [a, w] = await Promise.all([
-      supabase.from('activities').select('id,week_id,title,open,release,published_at').order('created_at'),
+      supabase.from('activities').select('id,week_id,title,open,release,published_at,randomize_questions').order('created_at'),
       supabase.from('weeks').select('id,number,title').order('number'),
     ])
     if (a.error || w.error) { setError('تعذّر التحميل.'); setLoading(false); return }
@@ -328,6 +329,16 @@ export default function QuizSetsTab() {
     await loadActivities()
   }
 
+  async function toggleRandomize() {
+    if (!supabase || !selectedId) return
+    const act = activities.find((a) => a.id === selectedId)
+    if (!act) return
+
+    setBusy(true)
+    await supabase.from('activities').update({ randomize_questions: !act.randomize_questions }).eq('id', act.id)
+    setBusy(false); await loadActivities()
+  }
+
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
   const selAct = activities.find((a) => a.id === selectedId)
@@ -372,6 +383,16 @@ export default function QuizSetsTab() {
               >
                 {selAct.published_at ? '⭐ منشور في الصدارة (إلغاء)' : '📢 نشر في الصدارة'}
               </button>
+              <button
+                className={(selAct.randomize_questions
+                  ? 'bg-accent text-white hover:bg-accent/80 ring-1 ring-white/40'
+                  : 'bg-white/15 text-white hover:bg-white/25') + ' rounded-xl px-5 py-2.5 text-base font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60'}
+                onClick={() => void toggleRandomize()}
+                disabled={busy}
+                title="تفعيل نظام سحب 30 سؤال عشوائي من أصل 60"
+              >
+                {selAct.randomize_questions ? '🎲 نظام عشوائي (مفعل)' : '🎲 نظام عشوائي (معطل)'}
+              </button>
             </div>
           )}
         </div>
@@ -386,7 +407,7 @@ export default function QuizSetsTab() {
               >
                 {activities.map((a) => {
                   const w = weeks.find((x) => x.id === a.week_id)
-                  const flags = `${a.published_at ? '⭐ (صدارة) ' : ''}${a.open ? '🔓 (متاح) ' : '🔒 (مغلق) '}`
+                  const flags = `${a.published_at ? '⭐ (صدارة) ' : ''}${a.open ? '🔓 (متاح) ' : '🔒 (مغلق) '}${a.randomize_questions ? '🎲 (عشوائي) ' : ''}`
                   return <option key={a.id} value={a.id} className="text-ink">{flags} - الأسبوع {w?.number ?? '?'}: {a.title}</option>
                 })}
               </select>
