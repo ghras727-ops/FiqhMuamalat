@@ -44,6 +44,7 @@ function formatTestDate(iso: string | null | undefined): string {
 export default function StudentHomePage() {
   const { profile } = useAuth()
   const [tab, setTab] = useState('feed')
+  const [refreshKey, setRefreshKey] = useState(0)
   const [mounted, setMounted] = useState<string[]>(['feed'])
   
   // شارات "جديد"
@@ -120,6 +121,12 @@ export default function StudentHomePage() {
 
   useEffect(() => { void initialLoad() }, [initialLoad])
 
+  // ⬇️ التحديث التلقائي (F5) عند الانتقال بين التبويبات
+  useEffect(() => {
+    setRefreshKey((prev) => prev + 1)
+    void refresh() // تحديث البيانات الرئيسية (الدرجات، التقارير)
+  }, [tab, refresh])
+
   // إخفاء الإشعار عند فتح التبويب
   useEffect(() => {
     if (tab === 'assignments' && hasNewAssignments) {
@@ -160,12 +167,12 @@ export default function StudentHomePage() {
         {profile?.student_no && <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-mono text-xs text-primary" dir="ltr">{profile.student_no}</span>}
       </div>
 
-      {mounted.includes('feed') && <div style={show('feed')}><FeedTab /></div>}
-      {mounted.includes('lessons') && <div style={show('lessons')}><WeekPacksView /></div>}
-      {mounted.includes('selftest') && <div style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
+      {mounted.includes('feed') && <div key={refreshKey} style={show('feed')}><FeedTab /></div>}
+      {mounted.includes('lessons') && <div key={refreshKey} style={show('lessons')}><WeekPacksView /></div>}
+      {mounted.includes('selftest') && <div key={refreshKey} style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
       
       {/* تبويب التكاليف الجديد */}
-      {mounted.includes('assignments') && <div style={show('assignments')}><StudentAssignmentsTab /></div>}
+      {mounted.includes('assignments') && <div key={refreshKey} style={show('assignments')}><StudentAssignmentsTab /></div>}
 
       {mounted.includes('acts') && (
         <div style={show('acts')}>

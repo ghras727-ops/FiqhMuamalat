@@ -268,8 +268,18 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     const { error: rpcErr } = await supabase.rpc('submit_attempt', {
       p_activity_id: running.id, p_answers: list, p_submit: false,
     })
-    setSaveStatus(rpcErr ? 'error' : 'saved')
-    if (!rpcErr) setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 1500)
+    
+    if (rpcErr) {
+      if (rpcErr.message.includes('already_graded_use_retake_request')) {
+        setSaveStatus('error')
+        void refresh() // سيقوم بجلب الحالة الجديدة وتحويلها لمراجعة
+        return
+      }
+      setSaveStatus('error')
+    } else {
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 1500)
+    }
   }
 
   useEffect(() => {
@@ -296,7 +306,16 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       p_activity_id: running.id, p_answers: list, p_submit: true,
     })
     setBusy(false)
-    if (rpcErr) { setError(rpcErr.message); return }
+    
+    if (rpcErr) {
+      if (rpcErr.message.includes('already_graded_use_retake_request')) {
+        setShowSubmitConfirm(false)
+        setError('⚠️ لقد قام الأستاذ بتصحيح اختبارك بالفعل. سيتم الآن عرض إجاباتك ومراجعتها.')
+        await refresh() // تحديث فوري لعرض المراجعة
+        return
+      }
+      setError(rpcErr.message); return 
+    }
     const r = data as { auto_score: number } | null
     setResult({ auto: r?.auto_score ?? 0, total: questions.reduce((s, q) => s + q.score, 0), answered: list.length })
     await load()
