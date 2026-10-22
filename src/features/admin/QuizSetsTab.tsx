@@ -354,13 +354,13 @@ export default function QuizSetsTab() {
             <div className="flex flex-wrap gap-2">
               <button
                 className={(selAct.open
-                  ? 'bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/30'
-                  : 'bg-white text-primary hover:bg-primary-soft') + ' rounded-xl px-5 py-2.5 text-base font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'}
+                  ? 'bg-white text-primary hover:bg-primary-soft'
+                  : 'bg-white/15 hover:bg-white/25 text-white ring-1 ring-white/30') + ' rounded-xl px-5 py-2.5 text-base font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'}
                 onClick={() => void toggleActivity()}
                 disabled={busy}
-                title="يسمح للطلاب برؤية النشاط والاختبار فيه"
+                title="يسمح للطلاب برؤية النشاط والاختبار فيه أو يمنعهم"
               >
-                {selAct.open ? '🔓 مفتوح للطلاب' : '🔒 فتح للطلاب'}
+                {selAct.open ? '🔓 مفتوح للطلاب (إغلاق)' : '🔒 مغلق للطلاب (فتح)'}
               </button>
               <button
                 className={(selAct.published_at
@@ -370,7 +370,7 @@ export default function QuizSetsTab() {
                 disabled={busy}
                 title="يُظهر أوائل هذا الأسبوع في صدارة المنصة"
               >
-                {selAct.published_at ? '⭐ منشور (الصدارة)' : '📢 نشر كصدارة'}
+                {selAct.published_at ? '⭐ منشور في الصدارة (إلغاء)' : '📢 نشر في الصدارة'}
               </button>
             </div>
           )}
@@ -386,8 +386,8 @@ export default function QuizSetsTab() {
               >
                 {activities.map((a) => {
                   const w = weeks.find((x) => x.id === a.week_id)
-                  const flags = `${a.published_at ? '⭐ ' : ''}${a.open ? '🔓' : '🔒'}`
-                  return <option key={a.id} value={a.id} className="text-ink">{flags} الأسبوع {w?.number ?? '?'}: {a.title}</option>
+                  const flags = `${a.published_at ? '⭐ (صدارة) ' : ''}${a.open ? '🔓 (متاح) ' : '🔒 (مغلق) '}`
+                  return <option key={a.id} value={a.id} className="text-ink">{flags} - الأسبوع {w?.number ?? '?'}: {a.title}</option>
                 })}
               </select>
 

@@ -81,8 +81,18 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     if (a.error || w.error || at.error || rq.error) {
       setError('تعذّر التحميل.')
     } else {
-      setActivities((a.data ?? []) as Activity[])
-      setWeeks((w.data ?? []) as Week[])
+      const acts = (a.data ?? []) as Activity[]
+      const wks = (w.data ?? []) as Week[]
+
+      // ⬇️ ترتيب الأنشطة تنازلياً حسب رقم الأسبوع (الأحدث أولاً)
+      const sortedActs = acts.sort((act1, act2) => {
+        const num1 = wks.find(x => x.id === act1.week_id)?.number || 0
+        const num2 = wks.find(x => x.id === act2.week_id)?.number || 0
+        return num2 - num1
+      })
+
+      setActivities(sortedActs)
+      setWeeks(wks)
       const m: Record<string, Attempt> = {}
       for (const t of (at.data ?? []) as Attempt[]) m[t.activity_id] = t
       setAttempts(m)
