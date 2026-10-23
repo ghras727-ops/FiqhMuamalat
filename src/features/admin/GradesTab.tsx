@@ -109,7 +109,8 @@ export default function GradesTab() {
 
     const [wRes, att, rq] = await Promise.all([
       supabase.from('weeks').select('id,number,title').order('number'),
-      supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at').order('submitted_at', { ascending: false }),
+      // ⬇️ الإصلاح: استبعاد المسودات (draft) تماماً من واجهة الأستاذ
+      supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at').in('status', ['submitted', 'graded']).order('submitted_at', { ascending: false }),
       supabase.from('retake_requests').select('id,activity_id,student_id,attempt_id,reason,created_at,status').eq('status', 'pending').order('created_at', { ascending: true }),
     ])
 
@@ -521,10 +522,8 @@ export default function GradesTab() {
                       <td className="p-3">
                         {r.status === 'graded' ? (
                           <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary ring-1 ring-secondary/20">مصحح</span>
-                        ) : r.status === 'submitted' ? (
-                          <span className="rounded-lg bg-warning-soft px-2 py-0.5 text-xs font-semibold text-ink ring-1 ring-warning">بانتظار التصحيح</span>
                         ) : (
-                          <span className="rounded-lg bg-ink/10 px-2 py-0.5 text-xs font-semibold text-ink-muted">قيد الإجابة</span>
+                          <span className="rounded-lg bg-warning-soft px-2 py-0.5 text-xs font-semibold text-ink ring-1 ring-warning">بانتظار التصحيح</span>
                         )}
                       </td>
                       <td className="p-3">
@@ -654,7 +653,6 @@ export default function GradesTab() {
                                   )}
                                   <div className="mt-3 flex items-center gap-3">
                                     <label className="text-sm font-semibold text-ink">الدرجة (من {q.score}):</label>
-                                    {/* ⬇️ قفل عجلة الماوس */}
                                     <input 
                                       type="number" 
                                       min={0} 
