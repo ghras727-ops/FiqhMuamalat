@@ -12,3 +12,36 @@ export interface Profile {
   must_change_password: boolean
   created_at: string
 }
+
+/** صف من جدول messages (محادثات مباشرة). */
+export interface Message {
+  id: string
+  sender_id: string
+  recipient_id: string
+  body: string
+  read_at: string | null
+  created_at: string
+}
+
+/** صف من جدول announcements (إعلانات الأستاذ). */
+export interface Announcement {
+  id: string
+  sender_id: string
+  title: string
+  body: string
+  created_at: string
+}
+
+/** صف من جدول announcement_reads (سجل قراءة إعلان). */
+export interface AnnouncementRead {
+  announcement_id: string
+  student_id: string
+  read_at: string
+}
+
+/** بيانات موجزة عن مستخدم آخر (للأسماء في الواجهة). */
+export interface UserBrief {
+  id: string
+  full_name: string
+  student_no?: string | null
+}
