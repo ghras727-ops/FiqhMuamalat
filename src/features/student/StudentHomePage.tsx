@@ -8,6 +8,8 @@ import StudentAssignmentsTab from './StudentAssignmentsTab'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import Tag from '../../components/Tag'
 import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
+import MessagesTab from '../shared/MessagesTab'
+import { useUnreadMessages } from '../shared/useUnreadMessages'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
@@ -43,6 +45,7 @@ function formatTestDate(iso: string | null | undefined): string {
 
 export default function StudentHomePage() {
   const { profile } = useAuth()
+  const { counts: msgCounts } = useUnreadMessages()
   const [tab, setTab] = useState('feed')
   const [refreshKey, setRefreshKey] = useState(0)
   const [mounted, setMounted] = useState<string[]>(['feed'])
@@ -153,6 +156,7 @@ export default function StudentHomePage() {
     { key: 'assignments', label: hasNewAssignments ? '🔴 التكاليف' : 'التكاليف' },
     { key: 'acts', label: 'أنشطتي' },
     { key: 'grades', label: hasNewReports ? '🔴 درجاتي' : 'درجاتي' },
+    { key: 'messages', label: msgCounts.total > 0 ? `🔴 مراسلة الأستاذ (${msgCounts.total})` : 'مراسلة الأستاذ' },
   ]
 
   const doneCount = activities.filter((a) => { const at = attempts[a.id]; return at?.status === 'submitted' || at?.status === 'graded' }).length
@@ -170,6 +174,7 @@ export default function StudentHomePage() {
       {mounted.includes('feed') && <div key={refreshKey} style={show('feed')}><FeedTab /></div>}
       {mounted.includes('lessons') && <div key={refreshKey} style={show('lessons')}><WeekPacksView /></div>}
       {mounted.includes('selftest') && <div key={refreshKey} style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
+      {mounted.includes('messages') && <div style={show('messages')}><MessagesTab /></div>}
       
       {/* تبويب التكاليف الجديد */}
       {mounted.includes('assignments') && <div key={refreshKey} style={show('assignments')}><StudentAssignmentsTab /></div>}
