@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../app/auth-context'
 import { supabase } from '../../lib/supabase'
-import type { Announcement, AnnouncementRead, Message, UserBrief } from '../../types'
+import type { Announcement, AnnouncementRead, Message, MessageReaction, UserBrief } from '../../types'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
@@ -28,7 +28,6 @@ export default function MessagesTab() {
 function StudentView() {
   const { profile } = useAuth()
   const [teacher, setTeacher] = useState<UserBrief | null>(null)
-  // هنا التعديل: جعلنا "محادثتي" هي الصفحة الافتراضية
   const [view, setView] = useState<'announcements' | 'chat'>('chat')
 
   useEffect(() => {
@@ -69,12 +68,7 @@ function StudentView() {
 
       {view === 'announcements' && <StudentAnnouncements />}
       {view === 'chat' && teacher && (
-        <DirectChat
-          meId={profile.id}
-          themId={teacher.id}
-          themName={teacher.full_name}
-          myRole="student"
-        />
+        <DirectChat meId={profile.id} themId={teacher.id} themName={teacher.full_name} myRole="student" />
       )}
       {view === 'chat' && !teacher && (
         <p className="rounded-xl bg-warning-soft p-4 text-ink">تعذّر العثور على حساب الأستاذ.</p>
@@ -107,10 +101,7 @@ function StudentAnnouncements() {
   async function open(ann: Announcement) {
     setOpenId(openId === ann.id ? null : ann.id)
     if (!readIds.has(ann.id) && supabase && profile) {
-      await supabase.from('announcement_reads').insert({
-        announcement_id: ann.id,
-        student_id: profile.id,
-      })
+      await supabase.from('announcement_reads').insert({ announcement_id: ann.id, student_id: profile.id })
       setReadIds((prev) => new Set([...prev, ann.id]))
     }
   }
@@ -134,9 +125,7 @@ function StudentAnnouncements() {
                   <span className="ms-auto text-xs text-ink-muted">{timeAgo(ann.created_at)}</span>
                 </div>
               </button>
-              {isOpen && (
-                <div className="mt-3 whitespace-pre-wrap rounded-lg bg-bg p-3 text-ink">{ann.body}</div>
-              )}
+              {isOpen && <div className="mt-3 whitespace-pre-wrap rounded-lg bg-bg p-3 text-ink">{ann.body}</div>}
             </li>
           )
         })}
@@ -156,20 +145,12 @@ function TeacherView() {
     <div className="space-y-4">
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
         <h2 className="text-3xl font-bold">مراسلة الطلاب</h2>
-        <p className="mt-1 text-base text-white/85">
-          أرسل إعلاناً لكل الطلاب، أو راسل طالباً بعينه. تابع من قرأ إعلاناتك.
-        </p>
+        <p className="mt-1 text-base text-white/85">أرسل إعلاناً لكل الطلاب، أو راسل طالباً بعينه. تابع من قرأ إعلاناتك.</p>
       </section>
 
       <div className="inline-flex rounded-xl border border-light-blue bg-white p-1 shadow-sm">
-        <button
-          className={(view === 'conversations' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'}
-          onClick={() => setView('conversations')}
-        >💬 محادثات الطلاب</button>
-        <button
-          className={(view === 'announcements' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'}
-          onClick={() => setView('announcements')}
-        >📢 الإعلانات</button>
+        <button className={(view === 'conversations' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'} onClick={() => setView('conversations')}>💬 محادثات الطلاب</button>
+        <button className={(view === 'announcements' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'} onClick={() => setView('announcements')}>📢 الإعلانات</button>
       </div>
 
       {view === 'conversations' && <TeacherConversations meId={profile.id} />}
@@ -188,18 +169,46 @@ function TeacherConversations({ meId }: { meId: string }) {
   const load = useCallback(async () => {
     if (!supabase) return
     setLoading(true)
-    const [sRes, mRes] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, student_no').eq('role', 'student').eq('active', true).order('full_name'),
-      supabase.from('messages').select('sender_id').eq('recipient_id', meId).is('read_at', null),
-    ])
-    setStudents((sRes.data ?? []) as UserBrief[])
+    
+    // 1) جلب الرسائل غير المقروءة
+    const mRes = await supabase.from('messages').select('sender_id').eq('recipient_id', meId).is('read_at', null)
     const counts: Record<string, number> = {}
     for (const row of (mRes.data ?? []) as { sender_id: string }[]) {
       counts[row.sender_id] = (counts[row.sender_id] ?? 0) + 1
     }
     setUnreadByStudent(counts)
+
+    // 2) جلب الطلاب:
+    if (search.trim()) {
+      // إذا كان هناك بحث، ابحث في كل الطلاب
+      const sRes = await supabase.from('profiles')
+        .select('id, full_name, student_no')
+        .eq('role', 'student')
+        .eq('active', true)
+        .or(`full_name.ilike.%${search}%,student_no.ilike.%${search}%`)
+        .order('full_name')
+      setStudents((sRes.data ?? []) as UserBrief[])
+    } else {
+      // إذا لم يكن هناك بحث، اعرض فقط الطلاب الذين لديهم رسائل
+      const allMsgs = await supabase.from('messages').select('sender_id, recipient_id').or(`sender_id.eq.${meId},recipient_id.eq.${meId}`)
+      const interactedIds = new Set<string>()
+      for (const m of (allMsgs.data ?? []) as { sender_id: string, recipient_id: string }[]) {
+        if (m.sender_id !== meId) interactedIds.add(m.sender_id)
+        if (m.recipient_id !== meId) interactedIds.add(m.recipient_id)
+      }
+
+      if (interactedIds.size > 0) {
+        const sRes = await supabase.from('profiles')
+          .select('id, full_name, student_no')
+          .in('id', Array.from(interactedIds))
+          .order('full_name')
+        setStudents((sRes.data ?? []) as UserBrief[])
+      } else {
+        setStudents([]) // لا يوجد محادثات سابقة
+      }
+    }
     setLoading(false)
-  }, [meId])
+  }, [meId, search])
 
   useEffect(() => { void load() }, [load])
 
@@ -215,45 +224,31 @@ function TeacherConversations({ meId }: { meId: string }) {
     return (
       <div className="space-y-3">
         <button className={btnOutline} onClick={() => { setSelected(null); void load() }}>← رجوع للقائمة</button>
-        <DirectChat
-          meId={meId}
-          themId={selected.id}
-          themName={selected.full_name + (selected.student_no ? ` (${selected.student_no})` : '')}
-          myRole="teacher"
-          onSent={() => { void load() }}
-        />
+        <DirectChat meId={meId} themId={selected.id} themName={selected.full_name + (selected.student_no ? ` (${selected.student_no})` : '')} myRole="teacher" onSent={() => { void load() }} />
       </div>
     )
   }
 
-  const filtered = students.filter((s) =>
-    s.full_name.toLowerCase().includes(search.toLowerCase()) ||
-    (s.student_no ?? '').toLowerCase().includes(search.toLowerCase())
-  )
-
   return (
     <section className={card}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-lg font-bold text-primary">محادثات الطلاب ({students.length})</h3>
+        <h3 className="text-lg font-bold text-primary">المحادثات ({students.length})</h3>
         <input
           className={input + ' max-w-xs mt-0'}
-          placeholder="ابحث باسم الطالب أو رقمه..."
+          placeholder="ابحث باسم الطالب أو رقمه لبدء محادثة..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-      {loading ? <p className="text-ink-muted">جارٍ التحميل...</p> : filtered.length === 0 ? (
-        <p className="text-ink-muted text-center py-6">لا طلاب مطابقون.</p>
+      {loading ? <p className="text-ink-muted">جارٍ التحميل...</p> : students.length === 0 ? (
+        <p className="text-ink-muted text-center py-6">{search ? 'لا طلاب مطابقون للبحث.' : 'لا توجد محادثات. ابحث باسم الطالب لبدء واحدة.'}</p>
       ) : (
         <ul className="space-y-2">
-          {filtered.map((s) => {
+          {students.map((s) => {
             const n = unreadByStudent[s.id] ?? 0
             return (
               <li key={s.id}>
-                <button
-                  className="w-full rounded-xl border-2 border-light-blue bg-white p-3 text-start hover:border-primary hover:bg-primary-soft/20 transition"
-                  onClick={() => setSelected(s)}
-                >
+                <button className="w-full rounded-xl border-2 border-light-blue bg-white p-3 text-start hover:border-primary hover:bg-primary-soft/20 transition" onClick={() => setSelected(s)}>
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <div className="text-base font-bold text-ink">{s.full_name}</div>
@@ -291,9 +286,7 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
   async function send() {
     if (!supabase || !title.trim() || !body.trim()) { setError('العنوان والنص مطلوبان.'); return }
     setBusy(true); setError(null)
-    const { error: insErr } = await supabase.from('announcements').insert({
-      sender_id: meId, title: title.trim(), body: body.trim(),
-    })
+    const { error: insErr } = await supabase.from('announcements').insert({ sender_id: meId, title: title.trim(), body: body.trim() })
     setBusy(false)
     if (insErr) { setError(insErr.message); return }
     setTitle(''); setBody('')
@@ -309,9 +302,7 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
     const reads = (readRes.data ?? []) as AnnouncementRead[]
     const students = (studentsRes.data ?? []) as { id: string; full_name: string }[]
     const readIds = new Set(reads.map((r) => r.student_id))
-    const readers = students
-      .filter((s) => readIds.has(s.id))
-      .map((s) => ({ name: s.full_name, read_at: reads.find((r) => r.student_id === s.id)!.read_at }))
+    const readers = students.filter((s) => readIds.has(s.id)).map((s) => ({ name: s.full_name, read_at: reads.find((r) => r.student_id === s.id)!.read_at }))
     const nonReaders = students.filter((s) => !readIds.has(s.id)).map((s) => s.full_name)
     setReads((prev) => ({ ...prev, [annId]: { readers, nonReaders, total: students.length } }))
   }
@@ -353,11 +344,7 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-base font-bold text-ink">{ann.title}</span>
                       <span className="ms-auto text-xs text-ink-muted">{timeAgo(ann.created_at)}</span>
-                      {info && (
-                        <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">
-                          قرأه {info.readers.length} من {info.total}
-                        </span>
-                      )}
+                      {info && <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">قرأه {info.readers.length} من {info.total}</span>}
                     </div>
                   </button>
                   {isOpen && (
@@ -368,22 +355,13 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
                           <div className="rounded-lg border border-secondary/30 bg-secondary-soft/30 p-3">
                             <div className="mb-1 text-sm font-bold text-secondary">✅ قرأوا ({info.readers.length})</div>
                             {info.readers.length === 0 ? <p className="text-xs text-ink-muted">لا أحد بعد.</p> : (
-                              <ul className="space-y-1 text-sm">
-                                {info.readers.map((r, i) => (
-                                  <li key={i} className="flex justify-between">
-                                    <span>{r.name}</span>
-                                    <span className="text-xs text-ink-muted">{timeAgo(r.read_at)}</span>
-                                  </li>
-                                ))}
-                              </ul>
+                              <ul className="space-y-1 text-sm">{info.readers.map((r, i) => <li key={i} className="flex justify-between"><span>{r.name}</span><span className="text-xs text-ink-muted">{timeAgo(r.read_at)}</span></li>)}</ul>
                             )}
                           </div>
                           <div className="rounded-lg border border-warning bg-warning-soft/40 p-3">
                             <div className="mb-1 text-sm font-bold text-ink">⏳ لم يقرأوا ({info.nonReaders.length})</div>
                             {info.nonReaders.length === 0 ? <p className="text-xs text-ink-muted">الجميع قرأ.</p> : (
-                              <ul className="space-y-1 text-sm">
-                                {info.nonReaders.map((n, i) => <li key={i}>{n}</li>)}
-                              </ul>
+                              <ul className="space-y-1 text-sm">{info.nonReaders.map((n, i) => <li key={i}>{n}</li>)}</ul>
                             )}
                           </div>
                         </div>
@@ -409,6 +387,7 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
   onSent?: () => void
 }) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [reactions, setReactions] = useState<MessageReaction[]>([])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -421,8 +400,17 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
       .select('*')
       .or(`and(sender_id.eq.${meId},recipient_id.eq.${themId}),and(sender_id.eq.${themId},recipient_id.eq.${meId})`)
       .order('created_at', { ascending: true })
+      
     if (err) { setError(err.message); return }
-    setMessages((data ?? []) as Message[])
+    const msgs = (data ?? []) as Message[]
+    setMessages(msgs)
+    
+    if (msgs.length > 0) {
+      const mIds = msgs.map(m => m.id)
+      const { data: reacts } = await supabase.from('message_reactions').select('*').in('message_id', mIds)
+      setReactions((reacts ?? []) as MessageReaction[])
+    }
+
     await supabase
       .from('messages')
       .update({ read_at: new Date().toISOString() })
@@ -436,7 +424,8 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
   useEffect(() => {
     if (!supabase) return
     const ch = supabase.channel(`chat-${meId}-${themId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => { void load() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => { void load() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, () => { void load() })
       .subscribe()
     return () => { void supabase!.removeChannel(ch) }
   }, [meId, themId, load])
@@ -446,9 +435,7 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
   async function send() {
     if (!supabase || !text.trim()) return
     setBusy(true); setError(null)
-    const { error: err } = await supabase.from('messages').insert({
-      sender_id: meId, recipient_id: themId, body: text.trim(),
-    })
+    const { error: err } = await supabase.from('messages').insert({ sender_id: meId, recipient_id: themId, body: text.trim() })
     setBusy(false)
     if (err) { setError(err.message); return }
     setText('')
@@ -456,20 +443,61 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
     onSent?.()
   }
 
+  async function toggleReaction(messageId: string, emoji: string) {
+    if (!supabase) return
+    const existing = reactions.find(r => r.message_id === messageId && r.user_id === meId && r.emoji === emoji)
+    
+    if (existing) {
+      await supabase.from('message_reactions').delete().eq('id', existing.id)
+      setReactions(prev => prev.filter(r => r.id !== existing.id))
+    } else {
+      const { data, error } = await supabase.from('message_reactions').insert({ message_id: messageId, user_id: meId, emoji }).select().single()
+      if (!error && data) {
+        setReactions(prev => [...prev, data as MessageReaction])
+      }
+    }
+  }
+
   return (
     <section className={card}>
       <h3 className="text-lg font-bold text-primary mb-3">محادثة مع {myRole === 'student' ? 'الأستاذ' : themName}</h3>
-      <div className="max-h-[500px] overflow-y-auto rounded-xl border border-light-blue bg-bg p-3 space-y-2">
+      <div className="max-h-[500px] overflow-y-auto rounded-xl border border-light-blue bg-bg p-3 space-y-4">
         {messages.length === 0 ? (
           <p className="text-center text-ink-muted py-6">لا رسائل بعد. ابدأ المحادثة أدناه.</p>
         ) : messages.map((m) => {
           const mine = m.sender_id === meId
+          const msgReactions = reactions.filter(r => r.message_id === m.id)
+          
+          const groupedReacts = msgReactions.reduce((acc, r) => {
+            acc[r.emoji] = (acc[r.emoji] || 0) + 1
+            return acc
+          }, {} as Record<string, number>)
+
           return (
-            <div key={m.id} className={'flex ' + (mine ? 'justify-start' : 'justify-end')}>
+            <div key={m.id} className={'flex flex-col ' + (mine ? 'items-start' : 'items-end')}>
               <div className={'max-w-[75%] rounded-2xl px-4 py-2 ' + (mine ? 'bg-primary text-white' : 'bg-white border border-light-blue text-ink')}>
                 <div className="whitespace-pre-wrap text-sm">{m.body}</div>
-                <div className={'mt-1 text-[10px] ' + (mine ? 'text-white/70' : 'text-ink-muted')}>
-                  {timeAgo(m.created_at)}{mine && m.read_at && ' · قُرئت'}
+                <div className={'mt-1 flex items-center gap-2 text-[10px] ' + (mine ? 'text-white/70' : 'text-ink-muted')}>
+                  <span>{timeAgo(m.created_at)}</span>
+                  {mine && m.read_at && <span>· قُرئت</span>}
+                  
+                  {/* أزرار التفاعل */}
+                  <div className="ms-auto flex items-center gap-1">
+                    <button
+                      onClick={() => void toggleReaction(m.id, '👍')}
+                      className={'rounded-full px-1.5 py-0.5 transition hover:bg-black/10 ' + (msgReactions.some(r => r.user_id === meId && r.emoji === '👍') ? 'bg-white/20' : '')}
+                      title="إعجاب"
+                    >
+                      👍 {groupedReacts['👍'] || ''}
+                    </button>
+                    <button
+                      onClick={() => void toggleReaction(m.id, '❤️')}
+                      className={'rounded-full px-1.5 py-0.5 transition hover:bg-black/10 ' + (msgReactions.some(r => r.user_id === meId && r.emoji === '❤️') ? 'bg-white/20' : '')}
+                      title="حب"
+                    >
+                      ❤️ {groupedReacts['❤️'] || ''}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
