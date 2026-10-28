@@ -50,13 +50,6 @@ export default function MessagesTab() {
 
 // ====================== تفاعلات الإعلانات (مشتركة) ======================
 
-/**
- * هوك مشترك بين الطالب والأستاذ:
- * - يجلب تفاعلات قائمة الإعلانات المعروضة.
- * - يستمع لأحداث INSERT/DELETE ويطبّقها مباشرة على الحالة (بدون إعادة تحميل كل شيء).
- * - يمنع تكرار التفاعل نفسه (dedupe بالـ id) عند وصول حدث الـ realtime قبل رد الـ insert.
- * - يعرض أي خطأ من Supabase بدل تجاهله بصمت.
- */
 function useAnnouncementReactions(announcementIds: string[], userId: string | undefined) {
   const [reactions, setReactions] = useState<AnnouncementReaction[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -84,7 +77,6 @@ function useAnnouncementReactions(announcementIds: string[], userId: string | un
 
   useEffect(() => { void fetchReactions() }, [fetchReactions])
 
-  // شبكة أمان: إن لم يكن الـ realtime مفعّلاً على الجدول، نحدّث دورياً وعند العودة للصفحة
   useEffect(() => {
     const tick = () => { if (document.visibilityState === 'visible') void fetchReactions() }
     const timer = window.setInterval(tick, 10000)
@@ -92,7 +84,6 @@ function useAnnouncementReactions(announcementIds: string[], userId: string | un
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', tick) }
   }, [fetchReactions])
 
-  // الاستماع الفوري (اشتراك واحد ثابت، لا يُعاد إنشاؤه عند تغيّر الإعلانات)
   useEffect(() => {
     if (!supabase) return
     const ch = supabase
@@ -123,7 +114,6 @@ function useAnnouncementReactions(announcementIds: string[], userId: string | un
     )
 
     if (existing) {
-      // حذف تفاؤلي مع تراجع عند الفشل
       setReactions((prev) => prev.filter((r) => r.id !== existing.id))
       const { error: err } = await supabase.from('announcement_reactions').delete().eq('id', existing.id)
       if (err) {
@@ -137,7 +127,7 @@ function useAnnouncementReactions(announcementIds: string[], userId: string | un
         .select()
         .single()
       if (err) {
-        if (err.code === '23505') { await fetchReactions(); return } // موجود مسبقاً
+        if (err.code === '23505') { await fetchReactions(); return }
         console.error('[announcement_reactions] insert failed:', err)
         setError('تعذّر حفظ التفاعل: ' + err.message)
         return
@@ -520,6 +510,7 @@ function TeacherConversations({ meId }: { meId: string }) {
 
 function TeacherAnnouncements({ meId }: { meId: string }) {
   const [items, setItems] = useState<Announcement[]>([])
+  const [studentNames, setStudentNames] = useState<Record<string, string>>({})
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
@@ -535,8 +526,19 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
 
   const load = useCallback(async () => {
     if (!supabase) return
-    const aRes = await supabase.from('announcements').select('*').eq('sender_id', meId).order('created_at', { ascending: false })
-    setItems((aRes.data ?? []) as Announcement[])
+    const [aRes, pRes] = await Promise.all([
+      supabase.from('announcements').select('*').eq('sender_id', meId).order('created_at', { ascending: false }),
+      supabase.from('profiles').select('id, full_name').eq('role', 'student')
+    ])
+    
+    const anns = (aRes.data ?? []) as Announcement[]
+    setItems(anns)
+    
+    const names: Record<string, string> = {}
+    for (const p of (pRes.data ?? [])) {
+      names[p.id] = p.full_name
+    }
+    setStudentNames(names)
   }, [meId])
 
   useEffect(() => { void load() }, [load])
@@ -607,6 +609,12 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
               const isOpen = expandedId === ann.id
               const isPickerOpen = pickerOpenId === ann.id
               const annReactions = reactions.filter((r) => r.announcement_id === ann.id)
+              
+              const groupedReacts = annReactions.reduce((acc, r) => {
+                acc[r.emoji] = (acc[r.emoji] || 0) + 1
+                return acc
+              }, {} as Record<string, number>)
+              const hasReactions = Object.keys(groupedReacts).length > 0
 
               return (
                 <li key={ann.id} className="rounded-xl border-2 border-light-blue transition-all duration-300">
@@ -633,12 +641,32 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
                       <ReactionBar
                         reactions={annReactions}
                         meId={meId}
-                        heading="تفاعلات الإعلان:"
                         pickerOpen={isPickerOpen}
                         onTogglePicker={() => setPickerOpenId(isPickerOpen ? null : ann.id)}
                         onClosePicker={() => setPickerOpenId(null)}
                         onToggle={(emoji) => void toggle(ann.id, emoji)}
                       />
+
+                      {/* --- تفصيل أسماء المتفاعلين للأستاذ --- */}
+                      {hasReactions && (
+                        <div className="mt-4 rounded-xl border border-secondary/20 bg-secondary-soft/10 p-4 shadow-sm" onClick={(e) => e.stopPropagation()}>
+                          <div className="mb-3 text-sm font-bold text-secondary flex items-center gap-1"><span>✨</span> تفصيل تفاعلات الطلاب</div>
+                          <div className="flex flex-col gap-2.5">
+                            {Object.entries(groupedReacts).map(([char]) => {
+                              const reactors = annReactions
+                                .filter(r => r.emoji === char)
+                                .map(r => r.student_id === meId ? 'أنت' : (studentNames[r.student_id] || 'طالب'))
+                              
+                              return (
+                                <div key={char} className="flex items-start gap-2.5 text-sm">
+                                  <span className="flex-shrink-0 flex items-center justify-center bg-white rounded-full min-w-[2.5rem] px-2 py-0.5 border border-light-blue font-bold shadow-sm">{char}</span>
+                                  <span className="text-ink-muted mt-0.5 leading-relaxed font-medium">{reactors.join('، ')}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {info && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4" onClick={(e) => e.stopPropagation()}>
