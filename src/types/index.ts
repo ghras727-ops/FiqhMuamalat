@@ -45,3 +45,12 @@ export interface UserBrief {
   full_name: string
   student_no?: string | null
 }
+
+/** صف من جدول message_reactions (تفاعلات الرسائل). */
+export interface MessageReaction {
+  id: string
+  message_id: string
+  user_id: string
+  emoji: string
+  created_at: string
+}
