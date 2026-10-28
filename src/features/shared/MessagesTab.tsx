@@ -4,10 +4,19 @@ import { supabase } from '../../lib/supabase'
 import type { Announcement, AnnouncementRead, Message, MessageReaction, UserBrief } from '../../types'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
-const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
-const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
-const input = 'w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-accent/40'
+const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60 transition-all active:scale-95'
+const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60 transition-all active:scale-95'
+const input = 'w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow'
 const label = 'text-sm font-semibold text-primary'
+
+const TOP_EMOJIS = [
+  { char: '👍', name: 'إعجاب' },
+  { char: '👋', name: 'تحية' },
+  { char: '🙏', name: 'مشكور' },
+  { char: '👏', name: 'أحسنت' },
+  { char: '❤️', name: 'أعجبني' },
+  { char: '😓', name: 'تعبت' }
+]
 
 function timeAgo(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000
@@ -57,11 +66,11 @@ function StudentView() {
 
       <div className="inline-flex rounded-xl border border-light-blue bg-white p-1 shadow-sm">
         <button
-          className={(view === 'chat' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'}
+          className={(view === 'chat' ? 'bg-primary text-white shadow-sm' : 'text-primary hover:bg-primary-soft') + ' rounded-lg px-4 py-2 text-sm font-semibold transition-all'}
           onClick={() => setView('chat')}
         >💬 محادثتي</button>
         <button
-          className={(view === 'announcements' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'}
+          className={(view === 'announcements' ? 'bg-primary text-white shadow-sm' : 'text-primary hover:bg-primary-soft') + ' rounded-lg px-4 py-2 text-sm font-semibold transition-all'}
           onClick={() => setView('announcements')}
         >📢 الإعلانات</button>
       </div>
@@ -117,15 +126,15 @@ function StudentAnnouncements() {
           const isNew = !readIds.has(ann.id)
           const isOpen = openId === ann.id
           return (
-            <li key={ann.id} className={'rounded-xl border-2 p-4 ' + (isNew ? 'border-error bg-error-soft/20' : 'border-light-blue')}>
+            <li key={ann.id} className={'rounded-xl border-2 p-4 transition-all duration-300 ' + (isNew ? 'border-error bg-error-soft/20' : 'border-light-blue')}>
               <button className="w-full text-start" onClick={() => void open(ann)}>
                 <div className="flex items-center gap-2">
-                  {isNew && <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">جديد</span>}
+                  {isNew && <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white shadow-sm">جديد</span>}
                   <span className="text-base font-bold text-ink">{ann.title}</span>
                   <span className="ms-auto text-xs text-ink-muted">{timeAgo(ann.created_at)}</span>
                 </div>
               </button>
-              {isOpen && <div className="mt-3 whitespace-pre-wrap rounded-lg bg-bg p-3 text-ink">{ann.body}</div>}
+              {isOpen && <div className="mt-3 whitespace-pre-wrap rounded-lg bg-bg p-4 text-sm leading-relaxed text-ink shadow-inner">{ann.body}</div>}
             </li>
           )
         })}
@@ -149,8 +158,8 @@ function TeacherView() {
       </section>
 
       <div className="inline-flex rounded-xl border border-light-blue bg-white p-1 shadow-sm">
-        <button className={(view === 'conversations' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'} onClick={() => setView('conversations')}>💬 محادثات الطلاب</button>
-        <button className={(view === 'announcements' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'} onClick={() => setView('announcements')}>📢 الإعلانات</button>
+        <button className={(view === 'conversations' ? 'bg-primary text-white shadow-sm' : 'text-primary hover:bg-primary-soft') + ' rounded-lg px-4 py-2 text-sm font-semibold transition-all'} onClick={() => setView('conversations')}>💬 محادثات الطلاب</button>
+        <button className={(view === 'announcements' ? 'bg-primary text-white shadow-sm' : 'text-primary hover:bg-primary-soft') + ' rounded-lg px-4 py-2 text-sm font-semibold transition-all'} onClick={() => setView('announcements')}>📢 الإعلانات</button>
       </div>
 
       {view === 'conversations' && <TeacherConversations meId={profile.id} />}
@@ -244,13 +253,13 @@ function TeacherConversations({ meId }: { meId: string }) {
             const n = unreadByStudent[s.id] ?? 0
             return (
               <li key={s.id}>
-                <button className="w-full rounded-xl border-2 border-light-blue bg-white p-3 text-start hover:border-primary hover:bg-primary-soft/20 transition" onClick={() => setSelected(s)}>
+                <button className="w-full rounded-xl border-2 border-light-blue bg-white p-3 text-start hover:border-primary hover:bg-primary-soft/20 transition-all duration-200" onClick={() => setSelected(s)}>
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <div className="text-base font-bold text-ink">{s.full_name}</div>
                       {s.student_no && <div className="text-xs font-mono text-ink-muted" dir="ltr">{s.student_no}</div>}
                     </div>
-                    {n > 0 && <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">{n} جديد</span>}
+                    {n > 0 && <span className="rounded-full bg-error px-2.5 py-1 text-xs font-bold text-white shadow-sm">{n} رسالة جديدة</span>}
                   </div>
                 </button>
               </li>
@@ -322,7 +331,7 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
             <label className={label}>النص</label>
             <textarea className={input + ' mt-1'} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="نص الإعلان..." />
           </div>
-          {error && <p className="rounded-lg bg-error-soft p-2 text-error">{error}</p>}
+          {error && <p className="rounded-lg bg-error-soft p-2 text-error text-sm font-semibold">{error}</p>}
           <button className={btn} onClick={() => void send()} disabled={busy}>{busy ? 'جارٍ النشر...' : '📢 نشر لكل الطلاب'}</button>
         </div>
       </section>
@@ -335,29 +344,29 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
               const info = reads[ann.id]
               const isOpen = expandedId === ann.id
               return (
-                <li key={ann.id} className="rounded-xl border-2 border-light-blue">
-                  <button className="w-full p-4 text-start" onClick={() => void toggleExpand(ann.id)}>
+                <li key={ann.id} className="rounded-xl border-2 border-light-blue transition-all duration-300">
+                  <button className="w-full p-4 text-start hover:bg-bg/50 transition-colors" onClick={() => void toggleExpand(ann.id)}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-base font-bold text-ink">{ann.title}</span>
-                      <span className="ms-auto text-xs text-ink-muted">{timeAgo(ann.created_at)}</span>
-                      {info && <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary">قرأه {info.readers.length} من {info.total}</span>}
+                      <span className="ms-auto text-xs text-ink-muted font-medium">{timeAgo(ann.created_at)}</span>
+                      {info && <span className="rounded-lg bg-secondary-soft px-2.5 py-1 text-xs font-bold text-secondary shadow-sm">قرأه {info.readers.length} من {info.total}</span>}
                     </div>
                   </button>
                   {isOpen && (
-                    <div className="border-t border-light-blue p-4 space-y-3">
-                      <div className="whitespace-pre-wrap rounded-lg bg-bg p-3 text-ink">{ann.body}</div>
+                    <div className="border-t border-light-blue p-4 space-y-4 bg-bg/30">
+                      <div className="whitespace-pre-wrap rounded-xl bg-white shadow-sm border border-light-blue p-4 text-sm leading-relaxed text-ink">{ann.body}</div>
                       {info && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="rounded-lg border border-secondary/30 bg-secondary-soft/30 p-3">
-                            <div className="mb-1 text-sm font-bold text-secondary">✅ قرأوا ({info.readers.length})</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="rounded-xl border border-secondary/30 bg-secondary-soft/30 p-4 shadow-sm">
+                            <div className="mb-2 text-sm font-bold text-secondary flex items-center gap-1"><span>✅</span> قرأوا ({info.readers.length})</div>
                             {info.readers.length === 0 ? <p className="text-xs text-ink-muted">لا أحد بعد.</p> : (
-                              <ul className="space-y-1 text-sm">{info.readers.map((r, i) => <li key={i} className="flex justify-between"><span>{r.name}</span><span className="text-xs text-ink-muted">{timeAgo(r.read_at)}</span></li>)}</ul>
+                              <ul className="space-y-1.5 text-sm">{info.readers.map((r, i) => <li key={i} className="flex justify-between font-medium"><span>{r.name}</span><span className="text-xs text-ink-muted">{timeAgo(r.read_at)}</span></li>)}</ul>
                             )}
                           </div>
-                          <div className="rounded-lg border border-warning bg-warning-soft/40 p-3">
-                            <div className="mb-1 text-sm font-bold text-ink">⏳ لم يقرأوا ({info.nonReaders.length})</div>
+                          <div className="rounded-xl border border-warning bg-warning-soft/40 p-4 shadow-sm">
+                            <div className="mb-2 text-sm font-bold text-ink flex items-center gap-1"><span>⏳</span> لم يقرأوا ({info.nonReaders.length})</div>
                             {info.nonReaders.length === 0 ? <p className="text-xs text-ink-muted">الجميع قرأ.</p> : (
-                              <ul className="space-y-1 text-sm">{info.nonReaders.map((n, i) => <li key={i}>{n}</li>)}</ul>
+                              <ul className="space-y-1.5 text-sm">{info.nonReaders.map((n, i) => <li key={i} className="font-medium">{n}</li>)}</ul>
                             )}
                           </div>
                         </div>
@@ -387,6 +396,7 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pickerOpenId, setPickerOpenId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
@@ -457,73 +467,97 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
   return (
     <section className={card}>
       <h3 className="text-lg font-bold text-primary mb-3">محادثة مع {myRole === 'student' ? 'الأستاذ' : themName}</h3>
-      <div className="max-h-[500px] overflow-y-auto rounded-xl border border-light-blue bg-bg p-3 space-y-4">
+      <div className="max-h-[500px] overflow-y-auto rounded-xl border-2 border-light-blue bg-bg/50 p-4 space-y-6">
         {messages.length === 0 ? (
-          <p className="text-center text-ink-muted py-6">لا رسائل بعد. ابدأ المحادثة أدناه.</p>
+          <p className="text-center text-ink-muted py-8 font-medium">لا رسائل بعد. ابدأ المحادثة أدناه.</p>
         ) : messages.map((m) => {
           const mine = m.sender_id === meId
           const msgReactions = reactions.filter(r => r.message_id === m.id)
+          const isPickerOpen = pickerOpenId === m.id
           
           const groupedReacts = msgReactions.reduce((acc, r) => {
             acc[r.emoji] = (acc[r.emoji] || 0) + 1
             return acc
           }, {} as Record<string, number>)
+          const hasReactions = Object.keys(groupedReacts).length > 0
 
           return (
-            <div key={m.id} className={'flex flex-col ' + (mine ? 'items-start' : 'items-end')}>
-              {/* فقاعة الرسالة */}
-              <div className={'max-w-[75%] rounded-2xl px-4 py-2 ' + (mine ? 'bg-primary text-white' : 'bg-white border border-light-blue text-ink')}>
-                <div className="whitespace-pre-wrap text-sm">{m.body}</div>
-                <div className={'mt-1 text-[10px] ' + (mine ? 'text-white/70' : 'text-ink-muted')}>
-                  {timeAgo(m.created_at)}{mine && m.read_at && ' · قُرئت'}
-                </div>
-              </div>
+            <div key={m.id} className={'group relative flex flex-col ' + (mine ? 'items-start' : 'items-end')}>
               
-              {/* شريط التفاعلات الجديد (أسفل الرسالة) */}
-              <div className="mt-1 flex items-center gap-2 px-1">
+              {/* غلاف الرسالة وزر التفاعلات */}
+              <div className={'relative flex items-center gap-2 ' + (mine ? 'flex-row' : 'flex-row-reverse')}>
+                
+                {/* فقاعة الرسالة */}
+                <div className={'relative max-w-[85%] px-4 py-3 shadow-sm transition-all ' + (mine ? 'rounded-2xl rounded-tr-sm bg-primary text-white' : 'rounded-2xl rounded-tl-sm bg-white border border-light-blue text-ink')}>
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.body}</div>
+                  <div className={'mt-1.5 flex items-center justify-end gap-1.5 text-[10px] font-medium ' + (mine ? 'text-white/80' : 'text-ink-muted')}>
+                    <span>{timeAgo(m.created_at)}</span>
+                    {mine && m.read_at && <span>✓✓</span>}
+                  </div>
+                </div>
+
+                {/* زر إضافة تفاعل (يظهر عند التمرير) */}
                 <button
-                  onClick={() => void toggleReaction(m.id, '👍')}
-                  className={
-                    'flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition ' +
-                    (msgReactions.some(r => r.user_id === meId && r.emoji === '👍')
-                      ? 'border-primary/30 bg-primary-soft text-primary'
-                      : 'border-transparent bg-bg/50 text-ink-muted hover:bg-primary-soft/50 hover:text-primary')
-                  }
-                  title="إعجاب"
+                  onClick={() => setPickerOpenId(isPickerOpen ? null : m.id)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-ink-muted shadow-sm opacity-40 md:opacity-0 transition-all hover:bg-primary-soft hover:text-primary group-hover:opacity-100 focus:opacity-100"
+                  title="أضف تفاعلاً"
                 >
-                  <span>👍</span>
-                  {groupedReacts['👍'] ? <span className="font-bold">{groupedReacts['👍']}</span> : null}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+                  </svg>
                 </button>
-                <button
-                  onClick={() => void toggleReaction(m.id, '❤️')}
-                  className={
-                    'flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition ' +
-                    (msgReactions.some(r => r.user_id === meId && r.emoji === '❤️')
-                      ? 'border-error/30 bg-error-soft text-error'
-                      : 'border-transparent bg-bg/50 text-ink-muted hover:bg-error-soft/50 hover:text-error')
-                  }
-                  title="حب"
-                >
-                  <span>❤️</span>
-                  {groupedReacts['❤️'] ? <span className="font-bold">{groupedReacts['❤️']}</span> : null}
-                </button>
+
+                {/* قائمة التفاعلات المنبثقة */}
+                {isPickerOpen && (
+                  <div className={`absolute -top-12 z-20 flex gap-1 rounded-full bg-white p-1.5 shadow-lg border border-light-blue ${mine ? 'right-0' : 'left-0'}`}>
+                    {TOP_EMOJIS.map(({ char, name }) => (
+                      <button
+                        key={char}
+                        onClick={() => { void toggleReaction(m.id, char); setPickerOpenId(null) }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-lg transition-transform hover:scale-125 hover:bg-bg"
+                        title={name}
+                      >
+                        {char}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {/* التفاعلات النشطة (أسفل الرسالة) */}
+              {hasReactions && (
+                <div className={`mt-1.5 flex flex-wrap gap-1.5 px-1 ${mine ? 'justify-start' : 'justify-end'}`}>
+                  {Object.entries(groupedReacts).map(([char, count]) => {
+                    const isMine = msgReactions.some(r => r.user_id === meId && r.emoji === char)
+                    return (
+                      <button
+                        key={char}
+                        onClick={() => void toggleReaction(m.id, char)}
+                        className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-bold transition-transform hover:scale-105 active:scale-95 ${isMine ? 'border-primary/40 bg-primary-soft text-primary shadow-sm' : 'border-light-blue bg-white text-ink shadow-sm hover:border-primary/50'}`}
+                      >
+                        <span>{char}</span>
+                        <span>{count}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )
         })}
         <div ref={bottomRef} />
       </div>
-      {error && <p className="mt-2 rounded-lg bg-error-soft p-2 text-error text-sm">{error}</p>}
-      <div className="mt-3 flex gap-2">
+      {error && <p className="mt-3 rounded-xl bg-error-soft p-3 text-error text-sm font-semibold">{error}</p>}
+      <div className="mt-4 flex gap-2">
         <textarea
-          className={input + ' mt-0 flex-1'}
+          className={input + ' mt-0 flex-1 resize-none'}
           rows={2}
           placeholder="اكتب رسالتك..."
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
         />
-        <button className={btn} onClick={() => void send()} disabled={busy || !text.trim()}>
+        <button className={btn + ' px-6'} onClick={() => void send()} disabled={busy || !text.trim()}>
           {busy ? '...' : 'إرسال'}
         </button>
       </div>
