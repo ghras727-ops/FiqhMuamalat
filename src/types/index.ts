@@ -19,6 +19,7 @@ export interface Message {
   sender_id: string
   recipient_id: string
   body: string
+  is_deleted?: boolean
   read_at: string | null
   created_at: string
 }

@@ -3,11 +3,10 @@ import { useAuth } from '../../app/auth-context'
 import { supabase } from '../../lib/supabase'
 import type { Announcement, AnnouncementRead, Message, MessageReaction, UserBrief } from '../../types'
 
-// تعريف نوع تفاعلات الإعلانات محلياً
 interface AnnouncementReaction {
   id: string
   announcement_id: string
-  student_id: string // معرف المستخدم (طالب أو أستاذ)
+  student_id: string
   emoji: string
   created_at: string
 }
@@ -647,7 +646,6 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
                         onToggle={(emoji) => void toggle(ann.id, emoji)}
                       />
 
-                      {/* --- تفصيل أسماء المتفاعلين للأستاذ --- */}
                       {hasReactions && (
                         <div className="mt-4 rounded-xl border border-secondary/20 bg-secondary-soft/10 p-4 shadow-sm" onClick={(e) => e.stopPropagation()}>
                           <div className="mb-3 text-sm font-bold text-secondary flex items-center gap-1"><span>✨</span> تفصيل تفاعلات الطلاب</div>
@@ -709,8 +707,9 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
+  
   const [pickerOpenId, setPickerOpenId] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -766,6 +765,20 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
     onSent?.()
   }
 
+  async function deleteMessage(messageId: string) {
+    if (!supabase) return
+    if (!window.confirm('هل أنت متأكد من رغبتك في حذف هذه الرسالة؟')) return
+    
+    // تحديث الرسالة لتكون محذوفة (Soft Delete) للحفاظ على سياق المحادثة
+    const { error: err } = await supabase.from('messages').update({ is_deleted: true }).eq('id', messageId)
+    if (err) {
+      setError('تعذّر حذف الرسالة: ' + err.message)
+      return
+    }
+    // تحديث الواجهة فوراً
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, is_deleted: true } : m))
+  }
+
   async function toggleReaction(messageId: string, emoji: string) {
     if (!supabase) return
     const existing = reactions.find(r => r.message_id === messageId && r.user_id === meId && r.emoji === emoji)
@@ -777,22 +790,39 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
       const { data, error } = await supabase.from('message_reactions').insert({ message_id: messageId, user_id: meId, emoji }).select().single()
       if (!error && data) {
         const row = data as MessageReaction
-        // منع التكرار إن كان حدث الـ realtime قد أضافه قبل رجوع الـ insert
         setReactions(prev => (prev.some(r => r.id === row.id) ? prev : [...prev, row]))
       }
     }
   }
 
+  // تصفية الرسائل بناءً على البحث
+  const displayedMessages = messages.filter(m => 
+    !searchTerm.trim() || 
+    (m.body && m.body.includes(searchTerm.trim()))
+  )
+
   return (
     <section className={card}>
-      <h3 className="text-lg font-bold text-primary mb-3">محادثة مع {myRole === 'student' ? 'الأستاذ' : themName}</h3>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-light-blue pb-3">
+        <h3 className="text-lg font-bold text-primary">محادثة مع {myRole === 'student' ? 'الأستاذ' : themName}</h3>
+        <input
+          type="text"
+          className="w-full sm:w-64 rounded-xl border border-light-blue bg-bg/50 px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all"
+          placeholder="🔍 ابحث في الرسائل..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
       <div
-        className="max-h-[500px] overflow-y-auto rounded-xl border-2 border-light-blue bg-bg/50 p-4 space-y-6 relative"
+        className="max-h-[500px] min-h-[300px] overflow-y-auto rounded-xl border-2 border-light-blue bg-bg/50 p-4 space-y-6 relative"
         onClick={() => setPickerOpenId(null)}
       >
         {messages.length === 0 ? (
           <p className="text-center text-ink-muted py-8 font-medium">لا رسائل بعد. ابدأ المحادثة أدناه.</p>
-        ) : messages.map((m) => {
+        ) : displayedMessages.length === 0 ? (
+          <p className="text-center text-ink-muted py-8 font-medium">لا توجد رسائل تطابق بحثك.</p>
+        ) : displayedMessages.map((m) => {
           const mine = m.sender_id === meId
           const msgReactions = reactions.filter(r => r.message_id === m.id)
           const isPickerOpen = pickerOpenId === m.id
@@ -803,11 +833,14 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
           }, {} as Record<string, number>)
           const hasReactions = Object.keys(groupedReacts).length > 0
 
+          // هل يحق للمستخدم حذف هذه الرسالة؟ (صاحب الرسالة أو الأستاذ)
+          const canDelete = !m.is_deleted && (mine || myRole === 'teacher')
+
           return (
             <div key={m.id} className={'group relative flex flex-col ' + (mine ? 'items-start' : 'items-end')}>
 
-              <div className="relative">
-                {isPickerOpen && (
+              <div className="relative max-w-full sm:max-w-[85%]">
+                {isPickerOpen && !m.is_deleted && (
                   <div
                     className={`absolute z-30 bottom-full mb-2 flex w-[280px] flex-wrap justify-center gap-1.5 rounded-2xl bg-white p-2.5 shadow-2xl border border-light-blue transition-all ${mine ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left'}`}
                     onClick={(e) => e.stopPropagation()}
@@ -825,20 +858,38 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
                   </div>
                 )}
 
-                <div
-                  onClick={(e) => { e.stopPropagation(); setPickerOpenId(isPickerOpen ? null : m.id) }}
-                  className={'cursor-pointer relative max-w-full sm:max-w-[85%] px-4 py-3 shadow-sm transition-transform active:scale-[0.98] ' + (mine ? 'rounded-2xl rounded-tr-sm bg-primary text-white hover:bg-primary-hover' : 'rounded-2xl rounded-tl-sm bg-white border border-light-blue text-ink hover:bg-bg')}
-                  title="اضغط لإضافة تفاعل"
-                >
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.body}</div>
-                  <div className={'mt-1.5 flex items-center justify-end gap-1.5 text-[10px] font-medium ' + (mine ? 'text-white/80' : 'text-ink-muted')}>
-                    <span>{timeAgo(m.created_at)}</span>
-                    {mine && m.read_at && <span>✓✓</span>}
+                {m.is_deleted ? (
+                  <div className={'px-4 py-2 text-sm italic border rounded-2xl ' + (mine ? 'bg-bg text-ink-muted border-light-blue rounded-tr-sm' : 'bg-bg/50 text-ink-muted border-light-blue rounded-tl-sm')}>
+                    🚫 تم حذف هذه الرسالة
                   </div>
+                ) : (
+                  <div
+                    onClick={(e) => { e.stopPropagation(); setPickerOpenId(isPickerOpen ? null : m.id) }}
+                    className={'cursor-pointer px-4 py-3 shadow-sm transition-transform active:scale-[0.98] ' + (mine ? 'rounded-2xl rounded-tr-sm bg-primary text-white hover:bg-primary-hover' : 'rounded-2xl rounded-tl-sm bg-white border border-light-blue text-ink hover:bg-bg')}
+                    title="اضغط لإضافة تفاعل"
+                  >
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.body}</div>
+                  </div>
+                )}
+
+                {/* شريط الوقت وأزرار التحكم */}
+                <div className={'mt-1 flex items-center gap-2 px-1 text-[10px] font-medium ' + (mine ? 'justify-start text-ink-muted' : 'justify-end text-ink-muted')}>
+                  <span>{timeAgo(m.created_at)}</span>
+                  {mine && m.read_at && !m.is_deleted && <span className="text-primary font-bold">✓✓</span>}
+                  
+                  {canDelete && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); void deleteMessage(m.id) }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-error hover:bg-error-soft rounded px-1.5 py-0.5"
+                      title="حذف الرسالة"
+                    >
+                      🗑️
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {hasReactions && (
+              {hasReactions && !m.is_deleted && (
                 <div className={`mt-1.5 flex flex-wrap gap-1.5 px-1 ${mine ? 'justify-start' : 'justify-end'}`}>
                   {Object.entries(groupedReacts).map(([char, count]) => {
                     const isMine = msgReactions.some(r => r.user_id === meId && r.emoji === char)
