@@ -170,7 +170,6 @@ function TeacherConversations({ meId }: { meId: string }) {
     if (!supabase) return
     setLoading(true)
     
-    // 1) جلب الرسائل غير المقروءة
     const mRes = await supabase.from('messages').select('sender_id').eq('recipient_id', meId).is('read_at', null)
     const counts: Record<string, number> = {}
     for (const row of (mRes.data ?? []) as { sender_id: string }[]) {
@@ -178,9 +177,7 @@ function TeacherConversations({ meId }: { meId: string }) {
     }
     setUnreadByStudent(counts)
 
-    // 2) جلب الطلاب:
     if (search.trim()) {
-      // إذا كان هناك بحث، ابحث في كل الطلاب
       const sRes = await supabase.from('profiles')
         .select('id, full_name, student_no')
         .eq('role', 'student')
@@ -189,7 +186,6 @@ function TeacherConversations({ meId }: { meId: string }) {
         .order('full_name')
       setStudents((sRes.data ?? []) as UserBrief[])
     } else {
-      // إذا لم يكن هناك بحث، اعرض فقط الطلاب الذين لديهم رسائل
       const allMsgs = await supabase.from('messages').select('sender_id, recipient_id').or(`sender_id.eq.${meId},recipient_id.eq.${meId}`)
       const interactedIds = new Set<string>()
       for (const m of (allMsgs.data ?? []) as { sender_id: string, recipient_id: string }[]) {
@@ -204,7 +200,7 @@ function TeacherConversations({ meId }: { meId: string }) {
           .order('full_name')
         setStudents((sRes.data ?? []) as UserBrief[])
       } else {
-        setStudents([]) // لا يوجد محادثات سابقة
+        setStudents([])
       }
     }
     setLoading(false)
@@ -475,30 +471,42 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
 
           return (
             <div key={m.id} className={'flex flex-col ' + (mine ? 'items-start' : 'items-end')}>
+              {/* فقاعة الرسالة */}
               <div className={'max-w-[75%] rounded-2xl px-4 py-2 ' + (mine ? 'bg-primary text-white' : 'bg-white border border-light-blue text-ink')}>
                 <div className="whitespace-pre-wrap text-sm">{m.body}</div>
-                <div className={'mt-1 flex items-center gap-2 text-[10px] ' + (mine ? 'text-white/70' : 'text-ink-muted')}>
-                  <span>{timeAgo(m.created_at)}</span>
-                  {mine && m.read_at && <span>· قُرئت</span>}
-                  
-                  {/* أزرار التفاعل */}
-                  <div className="ms-auto flex items-center gap-1">
-                    <button
-                      onClick={() => void toggleReaction(m.id, '👍')}
-                      className={'rounded-full px-1.5 py-0.5 transition hover:bg-black/10 ' + (msgReactions.some(r => r.user_id === meId && r.emoji === '👍') ? 'bg-white/20' : '')}
-                      title="إعجاب"
-                    >
-                      👍 {groupedReacts['👍'] || ''}
-                    </button>
-                    <button
-                      onClick={() => void toggleReaction(m.id, '❤️')}
-                      className={'rounded-full px-1.5 py-0.5 transition hover:bg-black/10 ' + (msgReactions.some(r => r.user_id === meId && r.emoji === '❤️') ? 'bg-white/20' : '')}
-                      title="حب"
-                    >
-                      ❤️ {groupedReacts['❤️'] || ''}
-                    </button>
-                  </div>
+                <div className={'mt-1 text-[10px] ' + (mine ? 'text-white/70' : 'text-ink-muted')}>
+                  {timeAgo(m.created_at)}{mine && m.read_at && ' · قُرئت'}
                 </div>
+              </div>
+              
+              {/* شريط التفاعلات الجديد (أسفل الرسالة) */}
+              <div className="mt-1 flex items-center gap-2 px-1">
+                <button
+                  onClick={() => void toggleReaction(m.id, '👍')}
+                  className={
+                    'flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition ' +
+                    (msgReactions.some(r => r.user_id === meId && r.emoji === '👍')
+                      ? 'border-primary/30 bg-primary-soft text-primary'
+                      : 'border-transparent bg-bg/50 text-ink-muted hover:bg-primary-soft/50 hover:text-primary')
+                  }
+                  title="إعجاب"
+                >
+                  <span>👍</span>
+                  {groupedReacts['👍'] ? <span className="font-bold">{groupedReacts['👍']}</span> : null}
+                </button>
+                <button
+                  onClick={() => void toggleReaction(m.id, '❤️')}
+                  className={
+                    'flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition ' +
+                    (msgReactions.some(r => r.user_id === meId && r.emoji === '❤️')
+                      ? 'border-error/30 bg-error-soft text-error'
+                      : 'border-transparent bg-bg/50 text-ink-muted hover:bg-error-soft/50 hover:text-error')
+                  }
+                  title="حب"
+                >
+                  <span>❤️</span>
+                  {groupedReacts['❤️'] ? <span className="font-bold">{groupedReacts['❤️']}</span> : null}
+                </button>
               </div>
             </div>
           )
