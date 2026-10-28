@@ -28,7 +28,8 @@ export default function MessagesTab() {
 function StudentView() {
   const { profile } = useAuth()
   const [teacher, setTeacher] = useState<UserBrief | null>(null)
-  const [view, setView] = useState<'announcements' | 'chat'>('announcements')
+  // هنا التعديل: جعلنا "محادثتي" هي الصفحة الافتراضية
+  const [view, setView] = useState<'announcements' | 'chat'>('chat')
 
   useEffect(() => {
     if (!supabase || !profile) return
@@ -57,13 +58,13 @@ function StudentView() {
 
       <div className="inline-flex rounded-xl border border-light-blue bg-white p-1 shadow-sm">
         <button
-          className={(view === 'announcements' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'}
-          onClick={() => setView('announcements')}
-        >📢 الإعلانات</button>
-        <button
           className={(view === 'chat' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'}
           onClick={() => setView('chat')}
         >💬 محادثتي</button>
+        <button
+          className={(view === 'announcements' ? 'bg-primary text-white' : 'text-primary') + ' rounded-lg px-4 py-2 text-sm font-semibold transition'}
+          onClick={() => setView('announcements')}
+        >📢 الإعلانات</button>
       </div>
 
       {view === 'announcements' && <StudentAnnouncements />}
