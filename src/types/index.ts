@@ -30,6 +30,7 @@ export interface Announcement {
   sender_id: string
   title: string
   body: string
+  is_deleted?: boolean
   created_at: string
 }
 

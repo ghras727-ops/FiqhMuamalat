@@ -14,6 +14,7 @@ interface AnnouncementReaction {
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60 transition-all active:scale-95'
 const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60 transition-all active:scale-95'
+const btnDanger = 'rounded-xl bg-error px-4 py-2 text-sm font-semibold text-white hover:bg-error/90 disabled:opacity-60 transition-all active:scale-95'
 const input = 'w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow'
 const label = 'text-sm font-semibold text-primary'
 
@@ -297,7 +298,7 @@ function StudentAnnouncements() {
   const load = useCallback(async () => {
     if (!supabase || !profileId) return
     const [aRes, rRes] = await Promise.all([
-      supabase.from('announcements').select('*').order('created_at', { ascending: false }),
+      supabase.from('announcements').select('*').eq('is_deleted', false).order('created_at', { ascending: false }),
       supabase.from('announcement_reads').select('announcement_id').eq('student_id', profileId),
     ])
 
@@ -415,7 +416,7 @@ function TeacherConversations({ meId }: { meId: string }) {
     if (!supabase) return
     setLoading(true)
 
-    const mRes = await supabase.from('messages').select('sender_id').eq('recipient_id', meId).is('read_at', null)
+    const mRes = await supabase.from('messages').select('sender_id').eq('recipient_id', meId).is('read_at', null).eq('is_deleted', false)
     const counts: Record<string, number> = {}
     for (const row of (mRes.data ?? []) as { sender_id: string }[]) {
       counts[row.sender_id] = (counts[row.sender_id] ?? 0) + 1
@@ -431,7 +432,7 @@ function TeacherConversations({ meId }: { meId: string }) {
         .order('full_name')
       setStudents((sRes.data ?? []) as UserBrief[])
     } else {
-      const allMsgs = await supabase.from('messages').select('sender_id, recipient_id').or(`sender_id.eq.${meId},recipient_id.eq.${meId}`)
+      const allMsgs = await supabase.from('messages').select('sender_id, recipient_id').or(`sender_id.eq.${meId},recipient_id.eq.${meId}`).eq('is_deleted', false)
       const interactedIds = new Set<string>()
       for (const m of (allMsgs.data ?? []) as { sender_id: string, recipient_id: string }[]) {
         if (m.sender_id !== meId) interactedIds.add(m.sender_id)
@@ -514,9 +515,14 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [pickerOpenId, setPickerOpenId] = useState<string | null>(null)
   const [reads, setReads] = useState<Record<string, { readers: { name: string; read_at: string }[]; nonReaders: string[]; total: number }>>({})
+
+  // Multi-select state
+  const [isSelectionMode, setIsSelectionMode] = useState(false)
+  const [selectedAnns, setSelectedAnns] = useState<Set<string>>(new Set())
 
   const { reactions, toggle, error: reactError, clearError } = useAnnouncementReactions(
     items.map((a) => a.id),
@@ -567,10 +573,39 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
   }
 
   async function toggleExpand(annId: string) {
+    if (isSelectionMode) { toggleSelect(annId); return }
     if (expandedId === annId) { setExpandedId(null); return }
     setExpandedId(annId)
     setPickerOpenId(null)
     if (!reads[annId]) await loadReads(annId)
+  }
+
+  // Multi-select logic
+  const toggleSelect = (id: string) => {
+    setSelectedAnns(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => {
+    const activeIds = items.filter(i => !i.is_deleted).map(i => i.id)
+    setSelectedAnns(new Set(activeIds))
+  }
+
+  const deleteSelected = async () => {
+    if (!supabase || selectedAnns.size === 0) return
+    if (!window.confirm(`هل أنت متأكد من حذف ${selectedAnns.size} إعلان؟`)) return
+    setBusy(true)
+    const ids = Array.from(selectedAnns)
+    const { error: err } = await supabase.from('announcements').update({ is_deleted: true }).in('id', ids)
+    setBusy(false)
+    if (err) { setError(err.message); return }
+    setSelectedAnns(new Set())
+    setIsSelectionMode(false)
+    await load()
   }
 
   return (
@@ -592,7 +627,28 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
       </section>
 
       <section className={card}>
-        <h3 className="text-lg font-bold text-primary mb-3">الإعلانات المنشورة ({items.length})</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-light-blue pb-3">
+          <h3 className="text-lg font-bold text-primary">الإعلانات المنشورة ({items.length})</h3>
+          <button onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedAnns(new Set()) }} className={btnOutline}>
+            {isSelectionMode ? 'إلغاء التحديد' : '☑️ تحديد الإعلانات'}
+          </button>
+        </div>
+
+        {isSelectionMode && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary-soft p-3 border border-primary/20 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="text-sm font-bold text-primary hover:underline" onClick={selectAll}>تحديد الكل</button>
+              <span className="text-ink-muted">|</span>
+              <button className="text-sm font-bold text-primary hover:underline" onClick={() => setSelectedAnns(new Set())}>إلغاء تحديد الكل</button>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-ink">تم تحديد {selectedAnns.size}</span>
+              <button className={btnDanger} onClick={deleteSelected} disabled={selectedAnns.size === 0 || busy}>
+                🗑️ حذف المحدد
+              </button>
+            </div>
+          </div>
+        )}
 
         {reactError && (
           <p className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-error-soft p-2 text-sm font-semibold text-error">
@@ -614,20 +670,34 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
                 return acc
               }, {} as Record<string, number>)
               const hasReactions = Object.keys(groupedReacts).length > 0
+              const isSelected = selectedAnns.has(ann.id)
 
               return (
-                <li key={ann.id} className="rounded-xl border-2 border-light-blue transition-all duration-300">
-                  <button className="w-full p-4 text-start hover:bg-bg/50 transition-colors" onClick={(e) => { e.stopPropagation(); void toggleExpand(ann.id) }}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-base font-bold text-ink">{ann.title}</span>
-                      {!isOpen && annReactions.length > 0 && (
-                        <span className="text-xs font-bold text-ink-muted">· {annReactions.length} تفاعل</span>
-                      )}
-                      <span className="ms-auto text-xs text-ink-muted font-medium">{timeAgo(ann.created_at)}</span>
-                      {info && <span className="rounded-lg bg-secondary-soft px-2.5 py-1 text-xs font-bold text-secondary shadow-sm">قرأه {info.readers.length} من {info.total}</span>}
-                    </div>
-                  </button>
-                  {isOpen && (
+                <li key={ann.id} className={`rounded-xl border-2 transition-all duration-300 ${isSelected ? 'border-primary bg-primary-soft/20' : 'border-light-blue'}`}>
+                  <div className="flex items-center w-full p-2 gap-2">
+                    {isSelectionMode && !ann.is_deleted && (
+                      <input 
+                        type="checkbox" 
+                        checked={isSelected} 
+                        onChange={() => toggleSelect(ann.id)}
+                        className="w-5 h-5 accent-primary cursor-pointer ms-2" 
+                      />
+                    )}
+                    <button className="flex-1 p-2 text-start hover:bg-bg/50 transition-colors" onClick={(e) => { e.stopPropagation(); void toggleExpand(ann.id) }}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`text-base font-bold ${ann.is_deleted ? 'text-ink-muted line-through' : 'text-ink'}`}>
+                          {ann.is_deleted ? '🚫 إعلان محذوف' : ann.title}
+                        </span>
+                        {!isOpen && annReactions.length > 0 && !ann.is_deleted && (
+                          <span className="text-xs font-bold text-ink-muted">· {annReactions.length} تفاعل</span>
+                        )}
+                        <span className="ms-auto text-xs text-ink-muted font-medium">{timeAgo(ann.created_at)}</span>
+                        {info && !ann.is_deleted && <span className="rounded-lg bg-secondary-soft px-2.5 py-1 text-xs font-bold text-secondary shadow-sm">قرأه {info.readers.length} من {info.total}</span>}
+                      </div>
+                    </button>
+                  </div>
+
+                  {isOpen && !ann.is_deleted && !isSelectionMode && (
                     <div className="border-t border-light-blue p-4 space-y-3 bg-bg/30">
                       <div
                         onClick={(e) => { e.stopPropagation(); setPickerOpenId(isPickerOpen ? null : ann.id) }}
@@ -711,6 +781,10 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
   const [pickerOpenId, setPickerOpenId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
 
+  // Multi-select state
+  const [isSelectionMode, setIsSelectionMode] = useState(false)
+  const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set())
+
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
@@ -752,7 +826,7 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
     return () => { void supabase!.removeChannel(ch) }
   }, [meId, themId, load])
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length, isSelectionMode])
 
   async function send() {
     if (!supabase || !text.trim()) return
@@ -769,14 +843,40 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
     if (!supabase) return
     if (!window.confirm('هل أنت متأكد من رغبتك في حذف هذه الرسالة؟')) return
     
-    // تحديث الرسالة لتكون محذوفة (Soft Delete) للحفاظ على سياق المحادثة
     const { error: err } = await supabase.from('messages').update({ is_deleted: true }).eq('id', messageId)
     if (err) {
       setError('تعذّر حذف الرسالة: ' + err.message)
       return
     }
-    // تحديث الواجهة فوراً
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, is_deleted: true } : m))
+  }
+
+  // Multi-select logic
+  const toggleSelect = (id: string) => {
+    setSelectedMsgs(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => {
+    const deletable = messages.filter(m => !m.is_deleted && (m.sender_id === meId || myRole === 'teacher')).map(m => m.id)
+    setSelectedMsgs(new Set(deletable))
+  }
+
+  const deleteSelected = async () => {
+    if (!supabase || selectedMsgs.size === 0) return
+    if (!window.confirm(`هل أنت متأكد من حذف ${selectedMsgs.size} رسالة؟`)) return
+    setBusy(true)
+    const ids = Array.from(selectedMsgs)
+    const { error: err } = await supabase.from('messages').update({ is_deleted: true }).in('id', ids)
+    setBusy(false)
+    if (err) { setError(err.message); return }
+    setSelectedMsgs(new Set())
+    setIsSelectionMode(false)
+    await load()
   }
 
   async function toggleReaction(messageId: string, emoji: string) {
@@ -795,7 +895,6 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
     }
   }
 
-  // تصفية الرسائل بناءً على البحث
   const displayedMessages = messages.filter(m => 
     !searchTerm.trim() || 
     (m.body && m.body.includes(searchTerm.trim()))
@@ -805,14 +904,35 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
     <section className={card}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-light-blue pb-3">
         <h3 className="text-lg font-bold text-primary">محادثة مع {myRole === 'student' ? 'الأستاذ' : themName}</h3>
-        <input
-          type="text"
-          className="w-full sm:w-64 rounded-xl border border-light-blue bg-bg/50 px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all"
-          placeholder="🔍 ابحث في الرسائل..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            className="w-full sm:w-48 rounded-xl border border-light-blue bg-bg/50 px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all"
+            placeholder="🔍 ابحث..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <button onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedMsgs(new Set()) }} className={btnOutline + ' px-3 py-1.5 text-xs'}>
+            {isSelectionMode ? 'إلغاء' : '☑️ تحديد'}
+          </button>
+        </div>
       </div>
+
+      {isSelectionMode && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary-soft p-3 border border-primary/20 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <button className="text-sm font-bold text-primary hover:underline" onClick={selectAll}>تحديد الكل</button>
+            <span className="text-ink-muted">|</span>
+            <button className="text-sm font-bold text-primary hover:underline" onClick={() => setSelectedMsgs(new Set())}>إلغاء التحديد</button>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-ink">تم تحديد {selectedMsgs.size}</span>
+            <button className={btnDanger} onClick={deleteSelected} disabled={selectedMsgs.size === 0 || busy}>
+              🗑️ حذف المحدد
+            </button>
+          </div>
+        </div>
+      )}
 
       <div
         className="max-h-[500px] min-h-[300px] overflow-y-auto rounded-xl border-2 border-light-blue bg-bg/50 p-4 space-y-6 relative"
@@ -826,6 +946,7 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
           const mine = m.sender_id === meId
           const msgReactions = reactions.filter(r => r.message_id === m.id)
           const isPickerOpen = pickerOpenId === m.id
+          const isSelected = selectedMsgs.has(m.id)
 
           const groupedReacts = msgReactions.reduce((acc, r) => {
             acc[r.emoji] = (acc[r.emoji] || 0) + 1
@@ -833,64 +954,80 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
           }, {} as Record<string, number>)
           const hasReactions = Object.keys(groupedReacts).length > 0
 
-          // هل يحق للمستخدم حذف هذه الرسالة؟ (صاحب الرسالة أو الأستاذ)
           const canDelete = !m.is_deleted && (mine || myRole === 'teacher')
+          const canSelect = canDelete && isSelectionMode
 
           return (
-            <div key={m.id} className={'group relative flex flex-col ' + (mine ? 'items-start' : 'items-end')}>
+            <div key={m.id} className={`group relative flex flex-col ${mine ? 'items-start' : 'items-end'} ${isSelected ? 'bg-primary-soft/30 rounded-xl p-1 -m-1' : ''}`}>
 
-              <div className="relative max-w-full sm:max-w-[85%]">
-                {isPickerOpen && !m.is_deleted && (
-                  <div
-                    className={`absolute z-30 bottom-full mb-2 flex w-[280px] flex-wrap justify-center gap-1.5 rounded-2xl bg-white p-2.5 shadow-2xl border border-light-blue transition-all ${mine ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left'}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {TOP_EMOJIS.map(({ char, name }) => (
-                      <button
-                        key={char}
-                        onClick={(e) => { e.stopPropagation(); void toggleReaction(m.id, char); setPickerOpenId(null) }}
-                        className="flex h-9 w-9 items-center justify-center rounded-full text-xl transition-transform hover:scale-125 hover:bg-primary-soft active:scale-90"
-                        title={name}
-                      >
-                        {char}
-                      </button>
-                    ))}
-                  </div>
+              <div className="relative max-w-full sm:max-w-[85%] flex items-center gap-2">
+                {/* Checkbox for selection */}
+                {canSelect && (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(m.id)}
+                    className="w-5 h-5 accent-primary cursor-pointer flex-shrink-0"
+                  />
                 )}
 
-                {m.is_deleted ? (
-                  <div className={'px-4 py-2 text-sm italic border rounded-2xl ' + (mine ? 'bg-bg text-ink-muted border-light-blue rounded-tr-sm' : 'bg-bg/50 text-ink-muted border-light-blue rounded-tl-sm')}>
-                    🚫 تم حذف هذه الرسالة
-                  </div>
-                ) : (
-                  <div
-                    onClick={(e) => { e.stopPropagation(); setPickerOpenId(isPickerOpen ? null : m.id) }}
-                    className={'cursor-pointer px-4 py-3 shadow-sm transition-transform active:scale-[0.98] ' + (mine ? 'rounded-2xl rounded-tr-sm bg-primary text-white hover:bg-primary-hover' : 'rounded-2xl rounded-tl-sm bg-white border border-light-blue text-ink hover:bg-bg')}
-                    title="اضغط لإضافة تفاعل"
-                  >
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.body}</div>
-                  </div>
-                )}
-
-                {/* شريط الوقت وأزرار التحكم */}
-                <div className={'mt-1 flex items-center gap-2 px-1 text-[10px] font-medium ' + (mine ? 'justify-start text-ink-muted' : 'justify-end text-ink-muted')}>
-                  <span>{timeAgo(m.created_at)}</span>
-                  {mine && m.read_at && !m.is_deleted && <span className="text-primary font-bold">✓✓</span>}
-                  
-                  {canDelete && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void deleteMessage(m.id) }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-error hover:bg-error-soft rounded px-1.5 py-0.5"
-                      title="حذف الرسالة"
+                <div className="relative">
+                  {isPickerOpen && !m.is_deleted && !isSelectionMode && (
+                    <div
+                      className={`absolute z-30 bottom-full mb-2 flex w-[280px] flex-wrap justify-center gap-1.5 rounded-2xl bg-white p-2.5 shadow-2xl border border-light-blue transition-all ${mine ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left'}`}
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      🗑️
-                    </button>
+                      {TOP_EMOJIS.map(({ char, name }) => (
+                        <button
+                          key={char}
+                          onClick={(e) => { e.stopPropagation(); void toggleReaction(m.id, char); setPickerOpenId(null) }}
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-xl transition-transform hover:scale-125 hover:bg-primary-soft active:scale-90"
+                          title={name}
+                        >
+                          {char}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {m.is_deleted ? (
+                    <div className={`px-4 py-2 text-sm italic border rounded-2xl ${mine ? 'bg-bg text-ink-muted border-light-blue rounded-tr-sm' : 'bg-bg/50 text-ink-muted border-light-blue rounded-tl-sm'}`}>
+                      🚫 تم حذف هذه الرسالة
+                    </div>
+                  ) : (
+                    <div
+                      onClick={(e) => { 
+                        e.stopPropagation();
+                        if (isSelectionMode) { toggleSelect(m.id); return; }
+                        setPickerOpenId(isPickerOpen ? null : m.id);
+                      }}
+                      className={`cursor-pointer px-4 py-3 shadow-sm transition-transform active:scale-[0.98] ${isSelected ? 'ring-2 ring-primary' : ''} ${mine ? 'rounded-2xl rounded-tr-sm bg-primary text-white hover:bg-primary-hover' : 'rounded-2xl rounded-tl-sm bg-white border border-light-blue text-ink hover:bg-bg'}`}
+                      title={isSelectionMode ? "اضغط للتحديد" : "اضغط لإضافة تفاعل"}
+                    >
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.body}</div>
+                    </div>
                   )}
                 </div>
               </div>
 
+              {/* Time and controls */}
+              <div className={`mt-1 flex items-center gap-2 px-1 text-[10px] font-medium ${mine ? 'justify-start text-ink-muted' : 'justify-end text-ink-muted'} ${canSelect ? 'ps-7' : ''}`}>
+                <span>{timeAgo(m.created_at)}</span>
+                {mine && m.read_at && !m.is_deleted && <span className="text-primary font-bold">✓✓</span>}
+                
+                {canDelete && !isSelectionMode && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void deleteMessage(m.id) }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-error hover:bg-error-soft rounded px-1.5 py-0.5"
+                    title="حذف الرسالة"
+                  >
+                    🗑️
+                  </button>
+                )}
+              </div>
+
               {hasReactions && !m.is_deleted && (
-                <div className={`mt-1.5 flex flex-wrap gap-1.5 px-1 ${mine ? 'justify-start' : 'justify-end'}`}>
+                <div className={`mt-1.5 flex flex-wrap gap-1.5 px-1 ${mine ? 'justify-start' : 'justify-end'} ${canSelect ? 'ps-7' : ''}`}>
                   {Object.entries(groupedReacts).map(([char, count]) => {
                     const isMine = msgReactions.some(r => r.user_id === meId && r.emoji === char)
                     return (
@@ -912,19 +1049,22 @@ function DirectChat({ meId, themId, themName, myRole, onSent }: {
         <div ref={bottomRef} />
       </div>
       {error && <p className="mt-3 rounded-xl bg-error-soft p-3 text-error text-sm font-semibold">{error}</p>}
-      <div className="mt-4 flex gap-2">
-        <textarea
-          className={input + ' mt-0 flex-1 resize-none'}
-          rows={2}
-          placeholder="اكتب رسالتك..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-        />
-        <button className={btn + ' px-6'} onClick={() => void send()} disabled={busy || !text.trim()}>
-          {busy ? '...' : 'إرسال'}
-        </button>
-      </div>
+      
+      {!isSelectionMode && (
+        <div className="mt-4 flex gap-2">
+          <textarea
+            className={input + ' mt-0 flex-1 resize-none'}
+            rows={2}
+            placeholder="اكتب رسالتك..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+          />
+          <button className={btn + ' px-6'} onClick={() => void send()} disabled={busy || !text.trim()}>
+            {busy ? '...' : 'إرسال'}
+          </button>
+        </div>
+      )}
     </section>
   )
 }
