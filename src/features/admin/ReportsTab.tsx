@@ -57,7 +57,7 @@ export default function ReportsTab() {
   const [weeks, setWeeks] = useState<Week[]>([])
   const [activities, setActivities] = useState<Activity[]>([])
   const [attempts, setAttempts] = useState<AttemptRaw[]>([])
-  const [totalsByActivity, setTotalsByActivity] = useState<Record<string, number>>({})
+  const [totalsByAttempt, setTotalsByAttempt] = useState<Record<string, number>>({})
 
   const [fromWeek, setFromWeek] = useState<number>(1)
   const [toWeek, setToWeek] = useState<number>(1)
@@ -106,26 +106,27 @@ export default function ReportsTab() {
     const wkList = (wkRes.data ?? []) as Week[]
     setWeeks(wkList)
     setActivities((acRes.data ?? []) as Activity[])
-    setAttempts((atRes.data ?? []) as AttemptRaw[])
+    const atList = (atRes.data ?? []) as AttemptRaw[]
+    setAttempts(atList)
 
     const maxWeek = wkList.length > 0 ? Math.max(...wkList.map((w) => w.number)) : 1
     setToWeek(maxWeek)
 
-    const actIds = ((acRes.data ?? []) as Activity[]).map((a) => a.id)
+    const attemptIds = atList.map(a => a.id)
     const totals: Record<string, number> = {}
-    if (actIds.length > 0) {
-      const aqRes = await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', actIds)
+        if (attemptIds.length > 0) {
+      const aqRes = await supabase.from('attempt_questions').select('attempt_id,question_id').in('attempt_id', attemptIds)
       const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
       const qRes = qIds.length > 0
         ? await supabase.from('questions').select('id,score').in('id', qIds)
         : { data: [] as { id: string; score: number }[], error: null }
       const scoreMap: Record<string, number> = {}
       for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
-      for (const link of (aqRes.data ?? []) as { activity_id: string; question_id: string }[]) {
-        totals[link.activity_id] = (totals[link.activity_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
+            for (const link of (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]) {
+        totals[link.attempt_id] = (totals[link.attempt_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
       }
     }
-    setTotalsByActivity(totals)
+    setTotalsByAttempt(totals)
     setLoading(false)
   }, [])
 
@@ -148,9 +149,10 @@ export default function ReportsTab() {
     const rows: StudentAttemptRow[] = []
     for (const w of weeks) {
       const act = activities.find((a) => a.week_id === w.id)
-      const total = act ? (totalsByActivity[act.id] ?? 0) : 0
       const attempt = act ? attempts.find((t) => t.activity_id === act.id && t.student_id === studentId) : null
-      const auto = attempt?.auto_score ?? 0
+            // ⬇️ ربط الدرجة الكاملة برقم المحاولة الخاصة بالطالب
+      const total = attempt ? (totalsByAttempt[attempt.id] ?? 0) : 0
+            const auto = attempt?.auto_score ?? 0
       const manual = attempt?.manual_score ?? 0
       const final = auto + manual
       const percent = total > 0 ? Math.round((final / total) * 100) : 0
@@ -471,129 +473,129 @@ export default function ReportsTab() {
               <div className="mt-3">
                 <label className="text-sm font-semibold text-ink">ملاحظة الأستاذ (اختيارية — ستظهر في التقرير)</label>
                 <textarea rows={2} className={input} placeholder="مثال: أحسنت، واصل هذا التميز." value={teacherNote} onChange={(e) => setTeacherNote(e.target.value)} />
-              </div>
-              <div className="mt-4 flex flex-wrap gap-3">
+            </div>
+            <div className="mt-4 flex flex-wrap gap-3">
                 <button className={btn} onClick={openPreview} disabled={busy}>
                   👁️ معاينة التقرير
                 </button>
-              </div>
-            </div>
-
-            {activeReports.length > 0 && (
-              <div className="mt-5">
-                <h4 className="text-base font-bold text-primary">📋 التقارير المعتمدة</h4>
-                <ul className="mt-2 space-y-2">
-                  {activeReports.map((r) => (
-                    <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-light-blue bg-white p-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-ink">
-                          {r.type === 'weekly' ? `أسبوعي — الأسبوع ${r.from_week_number}` : `تراكمي — الأسابيع ${r.from_week_number} إلى ${r.to_week_number}`}
-                          {r.report_number && <span className="ms-2 rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.report_number}</span>}
-                        </div>
-                        <div className="text-xs text-ink-muted">
-                          أُصدر {timeAgo(r.approved_at)}
-                          {r.seen_at ? ' — ✓ رآه الطالب' : ' — ⏳ لم يره بعد'}
-                        </div>
-                        {r.teacher_note && (
-                          <div className="mt-1 text-xs text-ink-muted">ملاحظة: {r.teacher_note}</div>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button className={btnOutline} onClick={() => openExistingReport(r)} disabled={busy}>
-                          عرض
-                        </button>
-                        <button className={btnDanger} onClick={() => void revokeReport(r.id, r.report_number)} disabled={busy}>
-                          إلغاء
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {revokedReports.length > 0 && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-sm text-ink-muted">
-                  تقارير ملغاة ({revokedReports.length})
-                </summary>
-                <ul className="mt-2 space-y-1 text-xs text-ink-muted">
-                  {revokedReports.map((r) => (
-                    <li key={r.id}>
-                      {r.type === 'weekly' ? `الأسبوع ${r.from_week_number}` : `تراكمي ${r.from_week_number}–${r.to_week_number}`}
-                      {' — '}{timeAgo(r.approved_at)}
-                      {r.report_number && <> — <span dir="ltr">{r.report_number}</span></>}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </>
-        )}
-      </section>
-
-      {/* ============ نافذة المعاينة ============ */}
-      {preview && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
-          <div className="mx-auto max-w-[900px]">
-            <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
-              <div className="text-base font-bold text-primary">
-                {preview.mode === 'new' ? '👁️ معاينة التقرير — قبل الاعتماد' : '📄 عرض التقرير'}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button className={btnOutline} onClick={printReport}>
-                  🖨️ طباعة / PDF
-                </button>
-                {preview.mode === 'new' ? (
-                  <button className={btnSuccess} onClick={() => void confirmApprove()} disabled={busy}>
-                    {busy ? '...' : '✓ اعتماد وإرسال للطالب'}
-                  </button>
-                ) : null}
-                <button className={btnDanger} onClick={() => setPreview(null)} disabled={busy}>
-                  إغلاق
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <WeeklyReport
-                snapshot={preview.snapshot}
-                reportNumber={preview.reportNumber}
-                approvedAt={preview.approvedAt}
-                teacherNote={preview.teacherNote}
-              />
             </div>
           </div>
-        </div>
-      )}
 
-      {/* نافذة التقرير المؤسسي */}
-      {instSnapshot && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
-          <div className="mx-auto max-w-[900px]">
-            <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
-              <div className="text-base font-bold text-primary">
-                📊 التقرير المؤسسي — الأسابيع {instSnapshot.from_week}–{instSnapshot.to_week}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button className={btnOutline} onClick={() => window.print()}>
-                  🖨️ طباعة / PDF
-                </button>
-                <button className={btn} onClick={() => setInstSnapshot(null)}>
-                  إغلاق
-                </button>
-              </div>
+          {activeReports.length > 0 && (
+            <div className="mt-5">
+              <h4 className="text-base font-bold text-primary">📋 التقارير المعتمدة</h4>
+              <ul className="mt-2 space-y-2">
+                {activeReports.map((r) => (
+                  <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-light-blue bg-white p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-ink">
+                        {r.type === 'weekly' ? `أسبوعي — الأسبوع ${r.from_week_number}` : `تراكمي — الأسابيع ${r.from_week_number} إلى ${r.to_week_number}`}
+                        {r.report_number && <span className="ms-2 rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.report_number}</span>}
+                      </div>
+                      <div className="text-xs text-ink-muted">
+                        أُصدر {timeAgo(r.approved_at)}
+                        {r.seen_at ? ' — ✓ رآه الطالب' : ' — ⏳ لم يره بعد'}
+                      </div>
+                      {r.teacher_note && (
+                        <div className="mt-1 text-xs text-ink-muted">ملاحظة: {r.teacher_note}</div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button className={btnOutline} onClick={() => openExistingReport(r)} disabled={busy}>
+                        عرض
+                      </button>
+                      <button className={btnDanger} onClick={() => void revokeReport(r.id, r.report_number)} disabled={busy}>
+                        إلغاء
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <InstitutionalReport
-                snapshot={instSnapshot}
-                generatedAt={instSnapshot.generated_at}
-                mode="grades"
-              />
+          )}
+
+          {revokedReports.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-sm text-ink-muted">
+                تقارير ملغاة ({revokedReports.length})
+              </summary>
+              <ul className="mt-2 space-y-1 text-xs text-ink-muted">
+                {revokedReports.map((r) => (
+                  <li key={r.id}>
+                    {r.type === 'weekly' ? `الأسبوع ${r.from_week_number}` : `تراكمي ${r.from_week_number}–${r.to_week_number}`}
+                    {' — '}{timeAgo(r.approved_at)}
+                    {r.report_number && <> — <span dir="ltr">{r.report_number}</span></>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
+      )}
+    </section>
+
+    {/* ============ نافذة المعاينة ============ */}
+    {preview && (
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
+        <div className="mx-auto max-w-[900px]">
+          <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
+            <div className="text-base font-bold text-primary">
+              {preview.mode === 'new' ? '👁️ معاينة التقرير — قبل الاعتماد' : '📄 عرض التقرير'}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className={btnOutline} onClick={printReport}>
+                🖨️ طباعة / PDF
+              </button>
+              {preview.mode === 'new' ? (
+                <button className={btnSuccess} onClick={() => void confirmApprove()} disabled={busy}>
+                  {busy ? '...' : '✓ اعتماد وإرسال للطالب'}
+                </button>
+              ) : null}
+              <button className={btnDanger} onClick={() => setPreview(null)} disabled={busy}>
+                إغلاق
+              </button>
             </div>
           </div>
+
+          <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <WeeklyReport
+              snapshot={preview.snapshot}
+              reportNumber={preview.reportNumber}
+              approvedAt={preview.approvedAt}
+              teacherNote={preview.teacherNote}
+            />
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    )}
+
+    {/* نافذة التقرير المؤسسي */}
+    {instSnapshot && (
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
+        <div className="mx-auto max-w-[900px]">
+          <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
+            <div className="text-base font-bold text-primary">
+              📊 التقرير المؤسسي — الأسابيع {instSnapshot.from_week}–{instSnapshot.to_week}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className={btnOutline} onClick={() => window.print()}>
+                🖨️ طباعة / PDF
+              </button>
+              <button className={btn} onClick={() => setInstSnapshot(null)}>
+                إغلاق
+              </button>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <InstitutionalReport
+              snapshot={instSnapshot}
+              generatedAt={instSnapshot.generated_at}
+              mode="grades"
+            />
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
   )
 }
