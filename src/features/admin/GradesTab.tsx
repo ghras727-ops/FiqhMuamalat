@@ -28,6 +28,7 @@ interface WeekInfo { id: string; number: number; title: string }
 interface AttemptRow {
   id: string; activity_id: string; student_id: string
   student_name: string; student_no: string | null
+  is_test?: boolean
   activity_title: string; week_number: number
   auto_score: number; manual_score: number | null
   total_possible: number; status: string; submitted_at: string
@@ -124,11 +125,11 @@ export default function GradesTab() {
     const studentIds = Array.from(new Set([...attempts.map((a) => a.student_id), ...reqs.map((r) => r.student_id)]))
     const activityIds = Array.from(new Set([...attempts.map((a) => a.activity_id), ...reqs.map((r) => r.activity_id)]))
 
-    const nameMap: Record<string, { name: string; no: string | null }> = {}
+  const nameMap: Record<string, { name: string; no: string | null; isTest: boolean }> = {}
     if (studentIds.length > 0) {
-      const pr = await supabase.from('profiles').select('id,full_name,student_no').in('id', studentIds)
-      for (const p of (pr.data ?? []) as { id: string; full_name: string; student_no: string | null }[]) {
-        nameMap[p.id] = { name: p.full_name, no: p.student_no }
+  const pr = await supabase.from('profiles').select('id,full_name,student_no,is_test').in('id', studentIds)
+  for (const p of (pr.data ?? []) as { id: string; full_name: string; student_no: string | null; is_test: boolean }[]) {
+    nameMap[p.id] = { name: p.full_name, no: p.student_no, isTest: p.is_test }
       }
     }
 
@@ -169,7 +170,7 @@ export default function GradesTab() {
       const act = actMap[a.activity_id]
       return {
         id: a.id, activity_id: a.activity_id, student_id: a.student_id,
-        student_name: info?.name ?? '—', student_no: info?.no ?? null,
+  student_name: info?.name ?? '—', student_no: info?.no ?? null, is_test: info?.isTest ?? false,
         activity_title: act?.title ?? '—',
         week_number: act ? (weekMap[act.week_id] ?? 0) : 0,
         auto_score: a.auto_score, manual_score: a.manual_score,
@@ -502,7 +503,7 @@ export default function GradesTab() {
                   return (
                     <tr key={r.id} className="border-b border-light-blue/50 hover:bg-bg">
                       <td className="p-3">{i + 1}</td>
-                      <td className="p-3 text-base font-semibold text-ink">{r.student_name}</td>
+                      <td className="p-3 text-base font-semibold text-ink">  {r.student_name}  {r.is_test && <span className="ms-2 rounded bg-warning-soft px-2 py-0.5 text-[10px] font-bold text-ink border border-warning">🧪 تجريبي</span>}</td>
                       <td className="p-3 font-mono text-xs text-ink-muted" dir="ltr">{r.student_no ?? '—'}</td>
                       {selectedWeek === 'all' && (
                         <td className="p-3">
@@ -546,7 +547,7 @@ export default function GradesTab() {
               <p className="mt-1 text-sm text-ink-muted">
                 <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-bold text-primary">
                   الأسبوع {gradingRow.week_number}
-                </span>
+              </span>
                 {' '}— {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}
               </p>
             </div>
