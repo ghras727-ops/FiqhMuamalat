@@ -40,7 +40,7 @@ interface RawAttempt {
 interface Question { id: string; type: QType; text: string; score: number }
 interface Option { id: string; question_id: string; label: string; text: string; position: number }
 interface Key { question_id: string; correct_option_id: string | null; correct_tf: boolean | null; model_answer: string | null; grading_criteria: string | null; internal_note: string | null }
-interface AQ { activity_id: string; question_id: string; position: number }
+interface AQ { activity_id?: string; question_id: string; position: number }
 interface AnswerRow {
   id: string; question_id: string
   option_id: string | null; text_answer: string | null
@@ -109,7 +109,6 @@ export default function GradesTab() {
 
     const [wRes, att, rq] = await Promise.all([
       supabase.from('weeks').select('id,number,title').order('number'),
-      // ⬇️ الإصلاح: استبعاد المسودات (draft) تماماً من واجهة الأستاذ
       supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at').in('status', ['submitted', 'graded']).order('submitted_at', { ascending: false }),
       supabase.from('retake_requests').select('id,activity_id,student_id,attempt_id,reason,created_at,status').eq('status', 'pending').order('created_at', { ascending: true }),
     ])
@@ -149,17 +148,19 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    const totalByActivity: Record<string, number> = {}
-    if (activityIds.length > 0) {
-      const aqRes = await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', activityIds)
+    // ⬇️ الإصلاح المعماري: حساب الدرجة الكاملة من attempt_questions (30 سؤال) بدلاً من activity_questions (60 سؤال)
+    const totalByAttempt: Record<string, number> = {}
+    const attemptIds = attempts.map(a => a.id)
+    if (attemptIds.length > 0) {
+      const aqRes = await supabase.from('attempt_questions').select('attempt_id,question_id').in('attempt_id', attemptIds)
       const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
       const qRes = qIds.length > 0
         ? await supabase.from('questions').select('id,score').in('id', qIds)
         : { data: [] as { id: string; score: number }[], error: null }
       const scoreMap: Record<string, number> = {}
       for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
-      for (const link of (aqRes.data ?? []) as { activity_id: string; question_id: string }[]) {
-        totalByActivity[link.activity_id] = (totalByActivity[link.activity_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
+      for (const link of (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]) {
+        totalByAttempt[link.attempt_id] = (totalByAttempt[link.attempt_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
       }
     }
 
@@ -172,7 +173,7 @@ export default function GradesTab() {
         activity_title: act?.title ?? '—',
         week_number: act ? (weekMap[act.week_id] ?? 0) : 0,
         auto_score: a.auto_score, manual_score: a.manual_score,
-        total_possible: totalByActivity[a.activity_id] ?? 0,
+        total_possible: totalByAttempt[a.id] ?? 0, // ⬅️ تم التعديل هنا
         status: a.status, submitted_at: a.submitted_at,
       }
     })
@@ -220,8 +221,10 @@ export default function GradesTab() {
   async function openGrading(row: AttemptRow) {
     if (!supabase) return
     setError(null); setSuccess(null); setBusy(true)
+    
+    // ⬇️ الإصلاح المعماري: جلب أسئلة المحاولة (attempt_questions) بدلاً من أسئلة النشاط كاملة
     const [aqRes, qRes, oRes, kRes, anRes] = await Promise.all([
-      supabase.from('activity_questions').select('activity_id,question_id,position').eq('activity_id', row.activity_id).order('position'),
+      supabase.from('attempt_questions').select('question_id,position').eq('attempt_id', row.id).order('position'),
       supabase.from('questions').select('id,type,text,score'),
       supabase.from('question_options').select('id,question_id,label,text,position').order('position'),
       supabase.from('question_keys').select('question_id,correct_option_id,correct_tf,model_answer,grading_criteria,internal_note'),
@@ -250,7 +253,6 @@ export default function GradesTab() {
     setOpen({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   }
 
-  // ⬇️ دالة تجهيز الملخص وعرض نافذة التأكيد
   function prepareSaveGrades() {
     if (!gradingRow) return
     let smartScore = 0, smartMax = 0
@@ -277,7 +279,6 @@ export default function GradesTab() {
     setShowSaveConfirm(true)
   }
 
-  // ⬇️ دالة الحفظ الفعلي (بعد التأكيد)
   async function executeSaveGrades() {
     if (!supabase || !gradingRow) return
     const list: { question_id: string; score: number }[] = []
@@ -335,14 +336,12 @@ export default function GradesTab() {
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
 
-  // تصفية
   const filtered = rows.filter((r) => {
     if (selectedWeek !== 'all' && r.week_number !== selectedWeek) return false
     if (query.trim() && !r.student_name.includes(query) && !(r.student_no ?? '').includes(query)) return false
     return true
   })
 
-  // إحصاءات الأسبوع المحدد
   const statRows = selectedWeek === 'all' ? rows : rows.filter((r) => r.week_number === selectedWeek)
   const totalAttempts = statRows.length
   const gradedCount = statRows.filter((r) => r.status === 'graded').length
@@ -694,11 +693,11 @@ export default function GradesTab() {
             <div className="space-y-3 text-start text-sm">
               <div className="rounded-xl border border-light-blue bg-bg p-3 flex justify-between items-center">
                 <span className="font-semibold text-ink">درجة المقالي الذكي:</span>
-                <span className="font-bold text-secondary text-lg">{saveSummary.smartScore} / {saveSummary.smartMax}</span>
+                <span className="font-bold text-secondary text-lg">{saveSummary.smartScore} <span className="text-sm text-ink-muted">من {saveSummary.smartMax}</span></span>
               </div>
               <div className="rounded-xl border border-light-blue bg-bg p-3 flex justify-between items-center">
                 <span className="font-semibold text-ink">درجة الاستدلال:</span>
-                <span className="font-bold text-secondary text-lg">{saveSummary.reasoningScore} / {saveSummary.reasoningMax}</span>
+                <span className="font-bold text-secondary text-lg">{saveSummary.reasoningScore} <span className="text-sm text-ink-muted">من {saveSummary.reasoningMax}</span></span>
               </div>
             </div>
 
