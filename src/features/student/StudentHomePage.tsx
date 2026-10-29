@@ -83,19 +83,32 @@ export default function StudentHomePage() {
     const weekMap: Record<string, number> = {}
     for (const w of (wRes.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
 
-    const actIds = acts.map((a) => a.id)
-    const aqRes = actIds.length > 0 ? await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', actIds) : { data: [], error: null }
+    const am: Record<string, AttemptRow> = {}
+    for (const t of (atRes.data ?? []) as AttemptRow[]) am[t.activity_id] = t
+    
+    // ⬇️ التعديل الجذري: جلب الأسئلة من attempt_questions للطالب، وليس من بنك الأسئلة العام
+    const attemptIds = Object.values(am).map(t => t.id)
+    const aqRes = attemptIds.length > 0 ? await supabase.from('attempt_questions').select('attempt_id,question_id').in('attempt_id', attemptIds) : { data: [], error: null }
+    
     const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
     const qRes = qIds.length > 0 ? await supabase.from('questions').select('id,score').in('id', qIds) : { data: [], error: null }
     const scoreMap: Record<string, number> = {}
     for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
+    
+    // ربط الدرجة بـ attempt_id ثم تحويلها لـ activity_id لتناسب الواجهة
+    const totalByAttempt: Record<string, number> = {}
+    for (const link of (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]) {
+      totalByAttempt[link.attempt_id] = (totalByAttempt[link.attempt_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
+    }
+    
     const totalByAct: Record<string, number> = {}
-    for (const link of (aqRes.data ?? []) as { activity_id: string; question_id: string }[]) totalByAct[link.activity_id] = (totalByAct[link.activity_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
+    for (const t of Object.values(am)) {
+      if (totalByAttempt[t.id]) {
+        totalByAct[t.activity_id] = totalByAttempt[t.id]
+      }
+    }
 
     setActivities(acts.map((a) => ({ id: a.id, title: a.title, week_number: weekMap[a.week_id] ?? 0, total_possible: totalByAct[a.id] ?? 0 })))
-    
-    const am: Record<string, AttemptRow> = {}
-    for (const t of (atRes.data ?? []) as AttemptRow[]) am[t.activity_id] = t
     setAttempts(am)
 
     const reps = (rpRes.data ?? []) as MyReport[]
