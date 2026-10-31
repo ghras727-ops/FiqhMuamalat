@@ -110,6 +110,9 @@ export default function QuizSetsTab() {
     mcq: true, tf: false, essay_smart: false, essay_reasoning: false,
   })
 
+  // ⬇️ حالة البحث الجديدة
+  const [searchQuery, setSearchQuery] = useState('')
+
   const [view, setView] = useState<View>('questions')
   const [attempts, setAttempts] = useState<AttemptRow[]>([])
   const [attemptTotals, setAttemptTotals] = useState<Record<string, number>>({})
@@ -198,9 +201,7 @@ export default function QuizSetsTab() {
     if (!supabase) return
     setBusy(true); setError(null)
     
-    // 1. جلب أسئلة المحاولة (30 سؤال)
     const aqRes = await supabase.from('attempt_questions').select('question_id').eq('attempt_id', attemptId)
-    // 2. جلب إجابات الطالب
     const an = await supabase.from('answers').select('id,question_id,option_id,text_answer,is_correct,awarded_score').eq('attempt_id', attemptId)
     
     setBusy(false)
@@ -214,14 +215,12 @@ export default function QuizSetsTab() {
     const finalRows: AnswerRow[] = []
     const g: Record<string, string> = {}
     
-    // بناء القائمة بناءً على أسئلة المحاولة فقط
     for (const aq of attemptQs) {
       const existing = ansMap.get(aq.question_id)
       if (existing) {
         finalRows.push(existing)
         if (existing.awarded_score !== null) g[aq.question_id] = String(existing.awarded_score)
       } else {
-        // سؤال لم يجب عليه الطالب (لأنه لم يُحفظ في answers)
         finalRows.push({
           id: 'temp-' + aq.question_id,
           question_id: aq.question_id,
@@ -389,11 +388,31 @@ export default function QuizSetsTab() {
   const answeredTypes = TYPE_ORDER.filter((t) => questions.some((q) => q.type === t)).length
   const progressPercent = questions.length === 0 ? 0 : Math.round((answeredTypes / TYPE_ORDER.length) * 100)
 
-  const grouped: Record<QType, AQ[]> = { mcq: [], tf: [], essay_smart: [], essay_reasoning: [] }
+  // ⬇️ تطبيق فلتر البحث (نص السؤال، الملاحظة الداخلية، أو الخيارات)
+  const lowerQuery = searchQuery.trim().toLowerCase();
+  
+  const filteredGrouped: Record<QType, AQ[]> = { mcq: [], tf: [], essay_smart: [], essay_reasoning: [] }
   for (const link of sortedAq) {
     const q = questions.find((x) => x.id === link.question_id)
-    if (q) grouped[q.type].push(link)
+    if (q) {
+      let matches = !searchQuery.trim() || q.text.toLowerCase().includes(lowerQuery);
+      
+      // البحث في الملاحظة الداخلية
+      const k = keys[q.id];
+      if (!matches && k?.internal_note && k.internal_note.toLowerCase().includes(lowerQuery)) matches = true;
+      
+      // البحث في الخيارات (لأسئلة الاختيار من متعدد)
+      if (!matches && q.type === 'mcq' && options[q.id]) {
+        matches = options[q.id].some(o => o.text.toLowerCase().includes(lowerQuery));
+      }
+
+      if (matches) {
+        filteredGrouped[q.type].push(link);
+      }
+    }
   }
+
+  const totalFiltered = Object.values(filteredGrouped).reduce((sum, arr) => sum + arr.length, 0);
 
   return (
     <div className="space-y-5">
@@ -517,14 +536,51 @@ export default function QuizSetsTab() {
 
           {mode === 'list' && selAct && (
             <div className="space-y-4">
+              {/* ⬇️ شريط البحث الجديد */}
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  className="flex-1 rounded-xl border border-light-blue bg-white px-4 py-3 text-base text-ink shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  placeholder="🔍 ابحث في نص الأسئلة، أو الملاحظات، أو الخيارات (مثال: ابن حزم، ماجد، قمح بقمح...)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    className="rounded-xl border border-light-blue bg-bg px-4 py-3 text-sm font-semibold text-ink-muted hover:bg-error-soft hover:text-error transition"
+                    onClick={() => setSearchQuery('')}
+                  >
+                    مسح البحث ✕
+                  </button>
+                )}
+              </div>
+
+              {searchQuery && (
+                <p className="text-sm font-bold text-primary">
+                  نتائج البحث: {totalFiltered} سؤالاً تطابق "{searchQuery}".
+                </p>
+              )}
+
+              {totalFiltered === 0 && searchQuery && (
+                <div className="rounded-2xl border border-light-blue bg-white p-10 text-center shadow-sm">
+                  <p className="text-lg font-bold text-ink-muted">لم يتم العثور على أي سؤال يطابق بحثك.</p>
+                  <p className="mt-2 text-sm text-ink-muted">تأكد من كتابة كلمة صحيحة، أو جرب البحث في الخيارات أو الملاحظات.</p>
+                </div>
+              )}
+
               {TYPE_ORDER.map((t) => {
-                const items = grouped[t]
+                const items = filteredGrouped[t]
+                if (searchQuery && items.length === 0) return null; // إخفاء الأقسام الفارغة أثناء البحث
+
                 const groupScore = items.reduce((s, link) => {
                   const q = questions.find((x) => x.id === link.question_id)
                   return s + (q?.score ?? 0)
                 }, 0)
-                const isOpen = open[t]
+                
+                // إذا كان هناك بحث، اجعل الأقسام مفتوحة دائماً
+                const isOpen = searchQuery.trim() !== '' ? true : open[t]
                 const style = TYPE_STYLE[t]
+                
                 return (
                   <section key={t} className={`overflow-hidden rounded-2xl border border-light-blue border-s-4 bg-white shadow-sm transition hover:shadow-md ${style.headerBg}`}>
                     <button
@@ -552,6 +608,15 @@ export default function QuizSetsTab() {
                           if (!q) return null
                           const qOpts = options[q.id] ?? []
                           const k = keys[q.id]
+                          // تمييز النص المطابق للبحث بلون مختلف
+                          const highlightText = (text: string) => {
+                            if (!searchQuery.trim()) return text;
+                            const parts = text.split(new RegExp(`(${searchQuery.trim()})`, 'gi'));
+                            return parts.map((part, index) => 
+                              part.toLowerCase() === lowerQuery ? <mark key={index} className="bg-warning-soft px-1 rounded">{part}</mark> : part
+                            );
+                          };
+
                           return (
                             <li key={q.id} className="rounded-xl border border-light-blue bg-white p-4 shadow-sm">
                               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -563,7 +628,9 @@ export default function QuizSetsTab() {
                                       <span className="rounded-lg bg-warning-soft px-2 py-0.5 font-semibold text-ink ring-1 ring-warning">⚠ يحتاج مراجعة</span>
                                     )}
                                   </div>
-                                  <div className="mt-3 whitespace-pre-wrap text-lg font-semibold leading-8 text-ink">{q.text}</div>
+                                  <div className="mt-3 whitespace-pre-wrap text-lg font-semibold leading-8 text-ink">
+                                    {highlightText(q.text)}
+                                  </div>
                                   {q.type === 'mcq' && (
                                     <ul className="mt-3 space-y-2 text-base">
                                       {qOpts.map((o) => {
@@ -571,7 +638,7 @@ export default function QuizSetsTab() {
                                         return (
                                           <li key={o.id} className={'flex items-center gap-3 rounded-lg border p-2 ' + (isCorrect ? 'border-secondary/40 bg-secondary-soft font-semibold text-secondary' : 'border-light-blue bg-white text-ink')}>
                                             <span className="w-8 text-center font-bold">{o.label}</span>
-                                            <span>{o.text}</span>
+                                            <span>{highlightText(o.text)}</span>
                                             {isCorrect && <span className="ms-auto pe-2 text-lg">✓</span>}
                                           </li>
                                         )
@@ -583,11 +650,13 @@ export default function QuizSetsTab() {
                                   )}
                                   {q.type.startsWith('essay') && k?.model_answer && (
                                     <div className="mt-3 whitespace-pre-wrap rounded-lg border border-light-blue bg-primary-soft p-3 text-base text-ink">
-                                      <b className="text-primary">الإجابة النموذجية: </b>{k.model_answer}
+                                      <b className="text-primary">الإجابة النموذجية: </b>{highlightText(k.model_answer)}
                                     </div>
                                   )}
                                   {k?.internal_note && (
-                                    <div className="mt-3 rounded-lg bg-warning-soft p-2 text-sm text-ink ring-1 ring-warning"><b>ملاحظة: </b>{k.internal_note}</div>
+                                    <div className="mt-3 rounded-lg bg-warning-soft p-2 text-sm text-ink ring-1 ring-warning">
+                                      <b>ملاحظة: </b>{highlightText(k.internal_note)}
+                                    </div>
                                   )}
                                 </div>
                                 <div className="flex flex-wrap gap-2">
