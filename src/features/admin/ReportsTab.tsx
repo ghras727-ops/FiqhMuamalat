@@ -276,9 +276,11 @@ export default function ReportsTab() {
             const act = activities.find(a => a.id === at.activity_id)
             const week = weeks.find(w => w.id === act?.week_id)
             if (week && week.number >= fromWeek && week.number <= toWeek) {
-              const max = totalsByAttempt[at.id] || 0
+              // إصلاح 1: إذا لم نجد الدرجة الكاملة في attempt_questions (للمحاولات القديمة)، نستخدم 60 كافتراضي
+              const max = totalsByAttempt[at.id] || 60
               const score = at.auto_score + (at.manual_score ?? 0)
-              grades.push({ week: week.number, title: act?.title || '', score, max, percent: max ? Math.round((score/max)*100) : 0, status: at.status })
+              // إصلاح 2: استخدام عنوان الأسبوع (week.title) بدلاً من عنوان النشاط
+              grades.push({ week: week.number, title: week.title, score, max, percent: max ? Math.round((score/max)*100) : 0, status: at.status })
             }
           }
         }

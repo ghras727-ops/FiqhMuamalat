@@ -10,21 +10,10 @@ export interface ComprehensiveSnapshot {
   options: { showGrades: boolean; showAttendance: boolean }
 }
 
-/* ============ الهوية اللونية (مطابقة لـ WeeklyReport) ============ */
 const C = {
-  blue: '#0B6CB3',
-  blueSoft: '#E6F2FA',
-  cyan: '#49CEF3',
-  cyanSoft: '#E8F8FD',
-  green: '#198B48',
-  greenSoft: '#E8F5ED',
-  red: '#D74050',
-  redSoft: '#FBEAEC',
-  ink: '#123A2E',
-  gray: '#4B5D63',
-  line: '#D6E4EC',
-  paper: '#F7FBFD',
-  mute: '#B9C6CC',
+  blue: '#0B6CB3', blueSoft: '#E6F2FA', cyan: '#49CEF3', cyanSoft: '#E8F8FD',
+  green: '#198B48', greenSoft: '#E8F5ED', red: '#D74050', redSoft: '#FBEAEC',
+  ink: '#123A2E', gray: '#4B5D63', line: '#D6E4EC', paper: '#F7FBFD', mute: '#B9C6CC',
 }
 
 const TEACHER = 'د. محمد إسماعيل'
@@ -32,12 +21,8 @@ const TEACHER = 'د. محمد إسماعيل'
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('ar-SA-u-nu-latn', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    })
-  } catch {
-    return '—'
-  }
+    return new Date(iso).toLocaleDateString('ar-SA-u-nu-latn', { year: 'numeric', month: 'long', day: 'numeric' })
+  } catch { return '—' }
 }
 
 function statusLabel(s?: string | null): string {
@@ -73,31 +58,28 @@ function Score({ value, total, style }: { value: React.ReactNode; total: React.R
 export default function ComprehensiveReport({ snapshot }: { snapshot: ComprehensiveSnapshot }) {
   const { student, from_week, to_week, grades, attendance, options, generated_at } = snapshot
 
-  // حساب الملخص للدرجات
-  const totalMax = grades.reduce((sum, g) => sum + g.max, 0)
-  const totalScore = grades.reduce((sum, g) => sum + g.score, 0)
-  const overallPercent = totalMax > 0 ? Math.round((totalScore / totalMax) * 100) : 0
+  // حماية البيانات: إذا كانت الدرجة الكاملة 0، نجعلها 60 لمنع النسب الخاطئة
+  const safeGrades = grades.map(g => {
+    const safeMax = (g.max && g.max > 0) ? g.max : 60;
+    const safePercent = Math.min(100, Math.round((g.score / safeMax) * 100));
+    return { ...g, safeMax, safePercent };
+  });
+
+  const totalMax = safeGrades.reduce((sum, g) => sum + g.safeMax, 0)
+  const totalScore = safeGrades.reduce((sum, g) => sum + g.score, 0)
+  // إجبار النسبة النهائية ألا تتجاوز 100%
+  const overallPercent = totalMax > 0 ? Math.min(100, Math.round((totalScore / totalMax) * 100)) : 0
 
   return (
     <div
       dir="rtl"
       className="print-area"
       style={{
-        width: '210mm',
-        minHeight: '297mm',
-        background: 'white',
-        color: C.ink,
+        width: '210mm', minHeight: '297mm', background: 'white', color: C.ink,
         fontFamily: '"Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
-        fontSize: '13px',
-        lineHeight: 1.6,
-        boxSizing: 'border-box',
-        margin: '0 auto',
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        WebkitPrintColorAdjust: 'exact',
-        printColorAdjust: 'exact',
+        fontSize: '13px', lineHeight: 1.6, boxSizing: 'border-box', margin: '0 auto',
+        position: 'relative', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
       }}
     >
       <style>{`
@@ -105,28 +87,17 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
         .print-area, .print-area * { font-family: "Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif; }
         @page { size: A4 portrait; margin: 0; }
         @media print {
-          html, body {
-            margin: 0 !important; padding: 0 !important; width: 210mm !important; height: 297mm !important;
-            max-height: 297mm !important; overflow: hidden !important; background: white !important;
-          }
+          html, body { margin: 0 !important; padding: 0 !important; width: 210mm !important; height: 297mm !important; max-height: 297mm !important; overflow: hidden !important; background: white !important; }
           body * { visibility: hidden !important; }
           .print-area, .print-area * { visibility: visible !important; }
-          .print-area {
-            -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            position: fixed !important; top: 0 !important; left: 0 !important;
-            right: auto !important; bottom: auto !important; transform: none !important;
-            zoom: 1 !important; margin: 0 !important; box-shadow: none !important;
-            border: none !important; border-radius: 0 !important; width: 210mm !important;
-            min-height: 297mm !important; overflow: hidden !important;
-          }
+          .print-area { -webkit-print-color-adjust: exact; print-color-adjust: exact; position: fixed !important; top: 0 !important; left: 0 !important; right: auto !important; bottom: auto !important; transform: none !important; zoom: 1 !important; margin: 0 !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; width: 210mm !important; min-height: 297mm !important; overflow: hidden !important; }
         }
       `}</style>
 
-      {/* شريط الهوية العلوي */}
       <div style={{ height: '6px', background: `linear-gradient(to left, ${C.blue}, ${C.cyan} 55%, ${C.green})`, flexShrink: 0 }} />
 
       <div style={{ padding: '8mm 11mm 8mm', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        {/* الترويسة */}
+        
         <header style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '10px', borderBottom: `1px solid ${C.line}` }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
             <img src="/UST.png" alt="شعار الجامعة" style={{ width: '72px', height: '72px', objectFit: 'contain', flexShrink: 0 }} />
@@ -144,12 +115,11 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
 
           <div style={{ flexShrink: 0, minWidth: '118px', border: `1px solid ${C.line}`, borderRadius: '8px', background: C.paper, overflow: 'hidden', textAlign: 'center' }}>
             <div style={{ padding: '3px 10px', background: C.blue, color: 'white', fontSize: '10.5px', fontWeight: 700 }}>تقرير شامل</div>
-            <div dir="ltr" style={{ padding: '3px 10px 0', fontFamily: 'monospace', fontWeight: 800, color: C.blue, fontSize: '12.5px' }}>AUTO-GEN</div>
+            <div dir="ltr" style={{ padding: '3px 10px 0', fontFamily: 'monospace', fontWeight: 800, color: C.blue, fontSize: '12.5px' }}>AUTO</div>
             <div style={{ padding: '0 10px 4px', fontSize: '11px', color: C.gray, fontWeight: 600 }}>{fmtDate(generated_at)}</div>
           </div>
         </header>
 
-        {/* شريط المدى */}
         <div style={{ marginTop: '10px', padding: '6px 12px', background: C.blueSoft, borderInlineStart: `5px solid ${C.blue}`, borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
           <div style={{ fontSize: '16px', fontWeight: 800, color: C.blue }}>
             تقرير الأداء الشامل
@@ -161,7 +131,6 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
           </div>
         </div>
 
-        {/* بيانات الطالب */}
         <section style={{ marginTop: '12px' }}>
           <SectionTitle>بيانات الطالب</SectionTitle>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', padding: '7px 14px', border: `1px solid ${C.line}`, borderRadius: '8px', background: C.paper }}>
@@ -176,8 +145,7 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
           </div>
         </section>
 
-        {/* ملخص النتيجة (يظهر فقط إذا كان خيار الدرجات مفعلاً) */}
-        {options.showGrades && grades.length > 0 && (
+        {options.showGrades && safeGrades.length > 0 && (
           <section style={{ marginTop: '12px' }}>
             <SectionTitle>ملخص النتيجة الأكاديمية</SectionTitle>
             <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr', gap: '8px' }}>
@@ -194,17 +162,16 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
               </div>
               <div style={cardStyle(C.gray, C.paper)}>
                 <div style={cardLabel}>الأسابيع المكتملة</div>
-                <div style={{ ...cardValue, color: C.ink }}>{grades.length}</div>
+                <div style={{ ...cardValue, color: C.ink }}>{safeGrades.length}</div>
               </div>
             </div>
           </section>
         )}
 
-        {/* تفصيل الدرجات */}
         {options.showGrades && (
           <section style={{ marginTop: '12px' }}>
             <SectionTitle>1. الجدول الأكاديمي (الدرجات)</SectionTitle>
-            {grades.length === 0 ? <p style={{ fontSize: '12px', color: C.gray }}>لا توجد درجات مسجلة.</p> : (
+            {safeGrades.length === 0 ? <p style={{ fontSize: '12px', color: C.gray }}>لا توجد درجات مسجلة.</p> : (
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, border: `1px solid ${C.line}`, borderRadius: '8px', overflow: 'hidden', fontSize: '12.5px' }}>
                 <thead>
                   <tr>
@@ -216,7 +183,7 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
                   </tr>
                 </thead>
                 <tbody>
-                  {grades.map((g, i) => {
+                  {safeGrades.map((g, i) => {
                     const bg = i % 2 === 1 ? C.paper : 'white'
                     const st = statusTone(g.status)
                     return (
@@ -226,13 +193,13 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
                         </td>
                         <td style={{ ...td, fontWeight: 700 }}>{g.title || '—'}</td>
                         <td style={{ ...td, textAlign: 'center', fontWeight: 800 }}>
-                          <Score value={g.score} total={g.max} style={{ color: C.ink }} />
+                          <Score value={g.score} total={g.safeMax} style={{ color: C.ink }} />
                         </td>
                         <td style={{ ...td, textAlign: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                            <span style={{ fontWeight: 800, color: percentColor(g.percent), minWidth: '34px', fontVariantNumeric: 'tabular-nums' }}>{g.percent}%</span>
+                            <span style={{ fontWeight: 800, color: percentColor(g.safePercent), minWidth: '34px', fontVariantNumeric: 'tabular-nums' }}>{g.safePercent}%</span>
                             <span style={{ width: '34px', height: '6px', background: '#E8EEF2', borderRadius: '3px', overflow: 'hidden', display: 'inline-block' }}>
-                              <span style={{ display: 'block', width: `${Math.min(100, g.percent)}%`, height: '100%', background: percentColor(g.percent) }} />
+                              <span style={{ display: 'block', width: `${Math.min(100, g.safePercent)}%`, height: '100%', background: percentColor(g.safePercent) }} />
                             </span>
                           </div>
                         </td>
@@ -248,7 +215,6 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
           </section>
         )}
 
-        {/* تفصيل الحضور */}
         {options.showAttendance && (
           <section style={{ marginTop: '16px' }}>
             <SectionTitle>2. سجل الحضور والغياب</SectionTitle>
@@ -281,7 +247,6 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
           </section>
         )}
 
-        {/* التذييل + التوقيع */}
         <footer style={{ marginTop: 'auto', paddingTop: '12px', flexShrink: 0 }}>
           <div style={{ padding: '6px 10px', background: C.blueSoft, border: `1px solid ${C.line}`, borderRadius: '8px', textAlign: 'center', fontSize: '12px', fontWeight: 700, lineHeight: 1.6, color: C.blue, flexShrink: 0 }}>
             مقرر المستوى الثاني - قسم الشريعة والقانون - فقه المعاملات (1) - مدرس المقرر: {TEACHER}
@@ -302,7 +267,6 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
         </footer>
       </div>
 
-      {/* شريط الهوية السفلي */}
       <div style={{ height: '4px', background: `linear-gradient(to left, ${C.green}, ${C.cyan} 45%, ${C.blue})`, flexShrink: 0 }} />
     </div>
   )
@@ -321,17 +285,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 const cardStyle = (border: string, bg: string): React.CSSProperties => ({
   padding: '7px 10px', background: bg, borderTop: `4px solid ${border}`, borderRadius: '6px', textAlign: 'center',
 })
-
 const cardLabel: React.CSSProperties = { fontSize: '11.5px', color: C.gray, fontWeight: 700 }
-
-const cardValue: React.CSSProperties = {
-  display: 'block', fontSize: '20px', fontWeight: 800, lineHeight: 1.4, fontVariantNumeric: 'tabular-nums',
-}
-
-const th: React.CSSProperties = {
-  padding: '6px 8px', background: C.blueSoft, color: C.blue, fontWeight: 800, textAlign: 'right', borderBottom: `2px solid ${C.blue}`, fontSize: '12px',
-}
-
-const td: React.CSSProperties = {
-  padding: '5px 8px', height: '30px', color: C.ink, borderBottom: `1px solid ${C.line}`, verticalAlign: 'middle', lineHeight: 1.4,
-}
+const cardValue: React.CSSProperties = { display: 'block', fontSize: '20px', fontWeight: 800, lineHeight: 1.4, fontVariantNumeric: 'tabular-nums' }
+const th: React.CSSProperties = { padding: '6px 8px', background: C.blueSoft, color: C.blue, fontWeight: 800, textAlign: 'right', borderBottom: `2px solid ${C.blue}`, fontSize: '12px' }
+const td: React.CSSProperties = { padding: '5px 8px', height: '30px', color: C.ink, borderBottom: `1px solid ${C.line}`, verticalAlign: 'middle', lineHeight: 1.4 }
