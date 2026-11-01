@@ -59,6 +59,7 @@ export default function ReportsTab() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [attempts, setAttempts] = useState<AttemptRaw[]>([])
   const [totalsByAttempt, setTotalsByAttempt] = useState<Record<string, number>>({})
+  const [totalsByActivity, setTotalsByActivity] = useState<Record<string, number>>({})
 
   const [fromWeek, setFromWeek] = useState<number>(1)
   const [toWeek, setToWeek] = useState<number>(1)
@@ -116,24 +117,36 @@ export default function ReportsTab() {
     const maxWeek = wkList.length > 0 ? Math.max(...wkList.map((w) => w.number)) : 1
     setToWeek(maxWeek)
 
+    // جلب الدرجات الكاملة المحصنة
     const atList = (atRes.data ?? []) as AttemptRaw[]
     const attemptIds = atList.map(a => a.id)
-    const totals: Record<string, number> = {}
+    const activityIds = Array.from(new Set(atList.map(a => a.activity_id)))
     
-    if (attemptIds.length > 0) {
-      const aqRes = await supabase.from('attempt_questions').select('attempt_id,question_id').in('attempt_id', attemptIds)
-      const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
-      const qRes = qIds.length > 0
-        ? await supabase.from('questions').select('id,score').in('id', qIds)
-        : { data: [] as { id: string; score: number }[], error: null }
-      const scoreMap: Record<string, number> = {}
-      for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
-      
-      for (const link of (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]) {
-        totals[link.attempt_id] = (totals[link.attempt_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
+    const actTotals: Record<string, number> = {}
+    const attTotals: Record<string, number> = {}
+
+    if (activityIds.length > 0) {
+      const { data: aqData } = await supabase.from('activity_questions').select('activity_id, questions(score)').in('activity_id', activityIds)
+      if (aqData) {
+        for (const row of aqData) {
+          const score = (row.questions as any)?.score || 0
+          actTotals[row.activity_id] = (actTotals[row.activity_id] || 0) + score
+        }
       }
     }
-    setTotalsByAttempt(totals)
+
+    if (attemptIds.length > 0) {
+      const { data: attAqData } = await supabase.from('attempt_questions').select('attempt_id, questions(score)').in('attempt_id', attemptIds)
+      if (attAqData) {
+        for (const row of attAqData) {
+          const score = (row.questions as any)?.score || 0
+          attTotals[row.attempt_id] = (attTotals[row.attempt_id] || 0) + score
+        }
+      }
+    }
+
+    setTotalsByActivity(actTotals)
+    setTotalsByAttempt(attTotals)
     setLoading(false)
   }, [])
 
@@ -157,11 +170,24 @@ export default function ReportsTab() {
     for (const w of weeks) {
       const act = activities.find((a) => a.week_id === w.id)
       const attempt = act ? attempts.find((t) => t.activity_id === act.id && t.student_id === studentId) : null
-      const total = attempt ? (totalsByAttempt[attempt.id] ?? 0) : 0
+      
+      // ⬇️ تطبيق الخوارزمية المحصنة للدرجة الكاملة
+      let total = 60
+      if (attempt) {
+        if (totalsByAttempt[attempt.id] && totalsByAttempt[attempt.id] > 0) {
+          total = totalsByAttempt[attempt.id]
+        } else if (act && totalsByActivity[act.id] && totalsByActivity[act.id] > 0) {
+          total = totalsByActivity[act.id]
+        }
+      } else if (act && totalsByActivity[act.id]) {
+        total = totalsByActivity[act.id]
+      }
+
       const auto = attempt?.auto_score ?? 0
       const manual = attempt?.manual_score ?? 0
       const final = auto + manual
-      const percent = total > 0 ? Math.round((final / total) * 100) : 0
+      const percent = Math.min(100, total > 0 ? Math.round((final / total) * 100) : 0)
+      
       rows.push({
         week_number: w.number, week_title: w.title,
         activity_id: act?.id ?? null, activity_title: act?.title ?? null,
@@ -208,7 +234,7 @@ export default function ReportsTab() {
       }
     })
 
-    const percent = sumTotal > 0 ? Math.round((sumScore / sumTotal) * 100) : 0
+    const percent = sumTotal > 0 ? Math.min(100, Math.round((sumScore / sumTotal) * 100)) : 0
 
     return {
       student: { id: student.id, full_name: student.full_name, student_no: student.student_no ?? '—' },
@@ -276,11 +302,13 @@ export default function ReportsTab() {
             const act = activities.find(a => a.id === at.activity_id)
             const week = weeks.find(w => w.id === act?.week_id)
             if (week && week.number >= fromWeek && week.number <= toWeek) {
-              // إصلاح 1: إذا لم نجد الدرجة الكاملة في attempt_questions (للمحاولات القديمة)، نستخدم 60 كافتراضي
-              const max = totalsByAttempt[at.id] || 60
+              // استخدام الدرجة الكاملة المحصنة
+              let max = 60
+              if (totalsByAttempt[at.id] && totalsByAttempt[at.id] > 0) max = totalsByAttempt[at.id]
+              else if (act && totalsByActivity[act.id] && totalsByActivity[act.id] > 0) max = totalsByActivity[act.id]
+              
               const score = at.auto_score + (at.manual_score ?? 0)
-              // إصلاح 2: استخدام عنوان الأسبوع (week.title) بدلاً من عنوان النشاط
-              grades.push({ week: week.number, title: week.title, score, max, percent: max ? Math.round((score/max)*100) : 0, status: at.status })
+              grades.push({ week: week.number, title: week.title, score, max, percent: Math.min(100, Math.round((score/max)*100)), status: at.status })
             }
           }
         }
@@ -315,7 +343,7 @@ export default function ReportsTab() {
   const inRange = studentRows.filter((r) => r.week_number >= fromWeek && r.week_number <= toWeek)
   const sumTotal = inRange.reduce((s, r) => s + r.total_possible, 0)
   const sumScore = inRange.reduce((s, r) => s + (r.has_attempt && r.status === 'graded' ? r.final_score : 0), 0)
-  const sumPercent = sumTotal > 0 ? Math.round((sumScore / sumTotal) * 100) : 0
+  const sumPercent = sumTotal > 0 ? Math.min(100, Math.round((sumScore / sumTotal) * 100)) : 0
 
   return (
     <div className="space-y-5">
