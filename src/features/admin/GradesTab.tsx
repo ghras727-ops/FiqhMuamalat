@@ -28,7 +28,6 @@ interface WeekInfo { id: string; number: number; title: string }
 interface AttemptRow {
   id: string; activity_id: string; student_id: string
   student_name: string; student_no: string | null
-  is_test?: boolean
   activity_title: string; week_number: number
   auto_score: number; manual_score: number | null
   total_possible: number; status: string; submitted_at: string
@@ -89,7 +88,6 @@ export default function GradesTab() {
   const [query, setQuery] = useState('')
   const [selectedWeek, setSelectedWeek] = useState<WeekFilter>('all')
 
-  // grading panel
   const [gradingRow, setGradingRow] = useState<AttemptRow | null>(null)
   const [gradingQuestions, setGradingQuestions] = useState<Question[]>([])
   const [gradingOptions, setGradingOptions] = useState<Record<string, Option[]>>({})
@@ -100,7 +98,6 @@ export default function GradesTab() {
   const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   const [busy, setBusy] = useState(false)
 
-  // ⬇️ حالة نافذة التأكيد
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [saveSummary, setSaveSummary] = useState<{ smartScore: number, smartMax: number, reasoningScore: number, reasoningMax: number, missingGrades: number } | null>(null)
 
@@ -125,11 +122,11 @@ export default function GradesTab() {
     const studentIds = Array.from(new Set([...attempts.map((a) => a.student_id), ...reqs.map((r) => r.student_id)]))
     const activityIds = Array.from(new Set([...attempts.map((a) => a.activity_id), ...reqs.map((r) => r.activity_id)]))
 
-  const nameMap: Record<string, { name: string; no: string | null; isTest: boolean }> = {}
+    const nameMap: Record<string, { name: string; no: string | null }> = {}
     if (studentIds.length > 0) {
-  const pr = await supabase.from('profiles').select('id,full_name,student_no,is_test').in('id', studentIds)
-  for (const p of (pr.data ?? []) as { id: string; full_name: string; student_no: string | null; is_test: boolean }[]) {
-    nameMap[p.id] = { name: p.full_name, no: p.student_no, isTest: p.is_test }
+      const pr = await supabase.from('profiles').select('id,full_name,student_no').in('id', studentIds)
+      for (const p of (pr.data ?? []) as { id: string; full_name: string; student_no: string | null }[]) {
+        nameMap[p.id] = { name: p.full_name, no: p.student_no }
       }
     }
 
@@ -149,18 +146,24 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    // ⬇️ الإصلاح المعماري: حساب الدرجة الكاملة من attempt_questions (30 سؤال) بدلاً من activity_questions (60 سؤال)
     const totalByAttempt: Record<string, number> = {}
     const attemptIds = attempts.map(a => a.id)
     if (attemptIds.length > 0) {
       const aqRes = await supabase.from('attempt_questions').select('attempt_id,question_id').in('attempt_id', attemptIds)
-      const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
+      let aqData = (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]
+      
+      if (aqData.length === 0) {
+         const fallbackAq = await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', activityIds)
+         aqData = (fallbackAq.data ?? []).map(x => ({ attempt_id: attempts.find(a => a.activity_id === x.activity_id)?.id || '', question_id: x.question_id }))
+      }
+
+      const qIds = Array.from(new Set(aqData.map((x) => x.question_id)))
       const qRes = qIds.length > 0
         ? await supabase.from('questions').select('id,score').in('id', qIds)
         : { data: [] as { id: string; score: number }[], error: null }
       const scoreMap: Record<string, number> = {}
       for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
-      for (const link of (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]) {
+      for (const link of aqData) {
         totalByAttempt[link.attempt_id] = (totalByAttempt[link.attempt_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
       }
     }
@@ -170,11 +173,11 @@ export default function GradesTab() {
       const act = actMap[a.activity_id]
       return {
         id: a.id, activity_id: a.activity_id, student_id: a.student_id,
-  student_name: info?.name ?? '—', student_no: info?.no ?? null, is_test: info?.isTest ?? false,
+        student_name: info?.name ?? '—', student_no: info?.no ?? null,
         activity_title: act?.title ?? '—',
         week_number: act ? (weekMap[act.week_id] ?? 0) : 0,
         auto_score: a.auto_score, manual_score: a.manual_score,
-        total_possible: totalByAttempt[a.id] ?? 0, // ⬅️ تم التعديل هنا
+        total_possible: totalByAttempt[a.id] ?? 0,
         status: a.status, submitted_at: a.submitted_at,
       }
     })
@@ -223,18 +226,25 @@ export default function GradesTab() {
     if (!supabase) return
     setError(null); setSuccess(null); setBusy(true)
     
-    // ⬇️ الإصلاح المعماري: جلب أسئلة المحاولة (attempt_questions) بدلاً من أسئلة النشاط كاملة
-    const [aqRes, qRes, oRes, kRes, anRes] = await Promise.all([
-      supabase.from('attempt_questions').select('question_id,position').eq('attempt_id', row.id).order('position'),
+    // جلب الأسئلة من جدول المحاولة الفردية
+    let { data: aqData } = await supabase.from('attempt_questions').select('question_id,position').eq('attempt_id', row.id).order('position')
+    let aqList = (aqData ?? []) as AQ[]
+    
+    // إذا كانت المحاولة قديمة (لا تحتوي على attempt_questions)، نرجع لأسئلة النشاط
+    if (aqList.length === 0) {
+      const fallback = await supabase.from('activity_questions').select('question_id,position').eq('activity_id', row.activity_id).order('position')
+      aqList = (fallback.data ?? []) as AQ[]
+    }
+
+    const [qRes, oRes, kRes, anRes] = await Promise.all([
       supabase.from('questions').select('id,type,text,score'),
       supabase.from('question_options').select('id,question_id,label,text,position').order('position'),
       supabase.from('question_keys').select('question_id,correct_option_id,correct_tf,model_answer,grading_criteria,internal_note'),
       supabase.from('answers').select('id,question_id,option_id,text_answer,is_correct,awarded_score').eq('attempt_id', row.id),
     ])
     setBusy(false)
-    if (aqRes.error || qRes.error || oRes.error || kRes.error || anRes.error) { setError('تعذّر تحميل بيانات التصحيح.'); return }
+    if (qRes.error || oRes.error || kRes.error || anRes.error) { setError('تعذّر تحميل بيانات التصحيح.'); return }
 
-    const aqList = (aqRes.data ?? []) as AQ[]
     const ids = new Set(aqList.map((x) => x.question_id))
     const qs = ((qRes.data ?? []) as Question[]).filter((q) => ids.has(q.id))
     const om: Record<string, Option[]> = {}
@@ -369,12 +379,9 @@ export default function GradesTab() {
       {error && <p className="rounded-xl bg-error-soft p-3 text-base font-semibold text-error">{error}</p>}
       {success && <p className="rounded-xl bg-secondary-soft p-3 text-base font-semibold text-secondary ring-1 ring-secondary/20">{success}</p>}
 
-      {/* طلبات الإعادة */}
       {retakeRequests.length > 0 && (
         <section className="rounded-2xl border-2 border-accent bg-gradient-to-l from-accent-soft/40 to-white p-5 shadow-sm">
-          <h3 className="text-xl font-bold text-primary">
-            📩 طلبات إعادة الاختبار ({retakeRequests.length})
-          </h3>
+          <h3 className="text-xl font-bold text-primary">📩 طلبات إعادة الاختبار ({retakeRequests.length})</h3>
           <p className="mt-1 text-sm text-ink-muted">الموافقة تحذف محاولة الطالب فيبدأ من جديد.</p>
           <ul className="mt-4 space-y-3">
             {retakeRequests.map((r) => (
@@ -386,9 +393,7 @@ export default function GradesTab() {
                       {r.student_no && (
                         <span className="rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.student_no}</span>
                       )}
-                      <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-bold text-primary">
-                        الأسبوع {r.week_number}
-                      </span>
+                      <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-bold text-primary">الأسبوع {r.week_number}</span>
                       <span className="text-xs text-ink-muted">{timeAgo(r.created_at)}</span>
                     </div>
                     <div className="mt-2 whitespace-pre-wrap rounded-lg bg-accent-soft/30 p-3 text-sm leading-7 text-ink">
@@ -406,18 +411,12 @@ export default function GradesTab() {
         </section>
       )}
 
-      {/* تبويبات الأسابيع */}
       <section className={card}>
         <h3 className="mb-3 text-lg font-bold text-primary">📅 فلترة حسب الأسبوع</h3>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setSelectedWeek('all')}
-            className={
-              'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' +
-              (selectedWeek === 'all'
-                ? 'border-primary bg-primary text-white shadow-md'
-                : 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft')
-            }
+            className={'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' + (selectedWeek === 'all' ? 'border-primary bg-primary text-white shadow-md' : 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft')}
           >
             الكل ({rows.length})
           </button>
@@ -430,14 +429,7 @@ export default function GradesTab() {
                 key={w.id}
                 onClick={() => setSelectedWeek(w.number)}
                 disabled={!hasAttempts}
-                className={
-                  'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' +
-                  (active
-                    ? 'border-primary bg-primary text-white shadow-md'
-                    : hasAttempts
-                      ? 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft'
-                      : 'cursor-not-allowed border-ink/10 bg-bg text-ink/30')
-                }
+                className={'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' + (active ? 'border-primary bg-primary text-white shadow-md' : hasAttempts ? 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft' : 'cursor-not-allowed border-ink/10 bg-bg text-ink/30')}
               >
                 الأسبوع {w.number} ({count})
               </button>
@@ -446,11 +438,8 @@ export default function GradesTab() {
         </div>
       </section>
 
-      {/* ملخص الأسبوع المحدد */}
       <section className={card}>
-        <h3 className="mb-3 text-lg font-bold text-primary">
-          📊 ملخص {selectedWeek === 'all' ? 'الإجمالي' : `الأسبوع ${selectedWeek}`}
-        </h3>
+        <h3 className="mb-3 text-lg font-bold text-primary">📊 ملخص {selectedWeek === 'all' ? 'الإجمالي' : `الأسبوع ${selectedWeek}`}</h3>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatCard label="عدد المؤدّين" value={String(totalAttempts)} tone="primary" />
           <StatCard label="مصحّح" value={`${gradedCount} / ${totalAttempts}`} tone="success" />
@@ -459,27 +448,17 @@ export default function GradesTab() {
         </div>
       </section>
 
-      {/* جدول الطلاب */}
       <section className={card}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-lg font-bold text-primary">
-            👥 طلاب {selectedWeek === 'all' ? 'جميع الأسابيع' : `الأسبوع ${selectedWeek}`}
-          </h3>
+          <h3 className="text-lg font-bold text-primary">👥 طلاب {selectedWeek === 'all' ? 'جميع الأسابيع' : `الأسبوع ${selectedWeek}`}</h3>
           <div className="flex flex-wrap gap-2">
-            <input
-              className={input + ' mt-0 w-56'}
-              placeholder="ابحث باسم الطالب أو رقمه..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+            <input className={input + ' mt-0 w-56'} placeholder="ابحث باسم الطالب أو رقمه..." value={query} onChange={(e) => setQuery(e.target.value)} />
             <button className={btnOutline} onClick={() => void load()}>🔄 تحديث</button>
           </div>
         </div>
 
         {filtered.length === 0 ? (
-          <p className="mt-4 rounded-xl bg-bg p-6 text-center text-base text-ink-muted">
-            {selectedWeek === 'all' ? 'لا نتائج بعد.' : `لا محاولات في الأسبوع ${selectedWeek} بعد.`}
-          </p>
+          <p className="mt-4 rounded-xl bg-bg p-6 text-center text-base text-ink-muted">{selectedWeek === 'all' ? 'لا نتائج بعد.' : `لا محاولات في الأسبوع ${selectedWeek} بعد.`}</p>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
@@ -503,32 +482,13 @@ export default function GradesTab() {
                   return (
                     <tr key={r.id} className="border-b border-light-blue/50 hover:bg-bg">
                       <td className="p-3">{i + 1}</td>
-                      <td className="p-3 text-base font-semibold text-ink">  {r.student_name}  {r.is_test && <span className="ms-2 rounded bg-warning-soft px-2 py-0.5 text-[10px] font-bold text-ink border border-warning">🧪 تجريبي</span>}</td>
+                      <td className="p-3 text-base font-semibold text-ink">{r.student_name}</td>
                       <td className="p-3 font-mono text-xs text-ink-muted" dir="ltr">{r.student_no ?? '—'}</td>
-                      {selectedWeek === 'all' && (
-                        <td className="p-3">
-                          <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-bold text-primary">
-                            أ{r.week_number}
-                          </span>
-                        </td>
-                      )}
-                      <td className="p-3 text-sm font-semibold text-ink-muted">
-                        <span dir="ltr">{formatTestDate(r.submitted_at)}</span>
-                      </td>
-                      <td className="p-3 text-lg font-bold text-secondary">
-                        {cappedTotal.toFixed(1)} / {r.total_possible}
-                        {overflow && <span className="ms-2 text-xs text-error">⚠</span>}
-                      </td>
-                      <td className="p-3">
-                        {r.status === 'graded' ? (
-                          <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary ring-1 ring-secondary/20">مصحح</span>
-                        ) : (
-                          <span className="rounded-lg bg-warning-soft px-2 py-0.5 text-xs font-semibold text-ink ring-1 ring-warning">بانتظار التصحيح</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        <button className={btnOutline} onClick={() => void openGrading(r)} disabled={busy}>تصحيح</button>
-                      </td>
+                      {selectedWeek === 'all' && <td className="p-3"><span className="rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-bold text-primary">أ{r.week_number}</span></td>}
+                      <td className="p-3 text-sm font-semibold text-ink-muted"><span dir="ltr">{formatTestDate(r.submitted_at)}</span></td>
+                      <td className="p-3 text-lg font-bold text-secondary">{cappedTotal.toFixed(1)} / {r.total_possible}{overflow && <span className="ms-2 text-xs text-error">⚠</span>}</td>
+                      <td className="p-3">{r.status === 'graded' ? <span className="rounded-lg bg-secondary-soft px-2 py-0.5 text-xs font-semibold text-secondary ring-1 ring-secondary/20">مصحح</span> : <span className="rounded-lg bg-warning-soft px-2 py-0.5 text-xs font-semibold text-ink ring-1 ring-warning">بانتظار التصحيح</span>}</td>
+                      <td className="p-3"><button className={btnOutline} onClick={() => void openGrading(r)} disabled={busy}>تصحيح</button></td>
                     </tr>
                   )
                 })}
@@ -538,18 +498,12 @@ export default function GradesTab() {
         )}
       </section>
 
-      {/* لوحة التصحيح */}
       {gradingRow && (
         <section className={card}>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-2xl font-bold text-primary">تصحيح — {gradingRow.student_name}</h3>
-              <p className="mt-1 text-sm text-ink-muted">
-                <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-bold text-primary">
-                  الأسبوع {gradingRow.week_number}
-              </span>
-                {' '}— {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}
-              </p>
+              <p className="mt-1 text-sm text-ink-muted"><span className="rounded-lg bg-primary-soft px-2 py-0.5 font-bold text-primary">الأسبوع {gradingRow.week_number}</span> — {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}</p>
             </div>
             <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
           </div>
@@ -594,23 +548,14 @@ export default function GradesTab() {
                               <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-semibold text-primary">{q.score} درجة</span>
                               {!answered && <span className="rounded-lg bg-error-soft px-2 py-0.5 font-semibold text-error ring-1 ring-error/20">لم يجب</span>}
                             </div>
-
                             <div className="mt-3 whitespace-pre-wrap text-lg font-semibold leading-8 text-ink">{q.text}</div>
 
                             {q.type === 'mcq' && (
                               <div className="mt-3 space-y-2 text-sm">
                                 {answered ? (
                                   <>
-                                    <div className="rounded-lg bg-bg p-2">
-                                      <b className="text-ink-muted">إجابة الطالب: </b>
-                                      <span className={ans?.is_correct ? 'font-semibold text-secondary' : 'font-semibold text-error'}>
-                                        {chosen ? `${chosen.label}) ${chosen.text}` : '—'}
-                                        {ans?.is_correct ? ' ✓' : ' ✗'}
-                                      </span>
-                                    </div>
-                                    <div className="rounded-lg bg-secondary-soft p-2 text-secondary">
-                                      <b>الإجابة الصحيحة: </b>{correctOpt ? `${correctOpt.label}) ${correctOpt.text}` : '—'}
-                                    </div>
+                                    <div className="rounded-lg bg-bg p-2"><b className="text-ink-muted">إجابة الطالب: </b><span className={ans?.is_correct ? 'font-semibold text-secondary' : 'font-semibold text-error'}>{chosen ? `${chosen.label}) ${chosen.text}` : '—'}{ans?.is_correct ? ' ✓' : ' ✗'}</span></div>
+                                    <div className="rounded-lg bg-secondary-soft p-2 text-secondary"><b>الإجابة الصحيحة: </b>{correctOpt ? `${correctOpt.label}) ${correctOpt.text}` : '—'}</div>
                                   </>
                                 ) : <p className="rounded-lg bg-error-soft p-2 text-error">الطالب لم يجب عن هذا السؤال.</p>}
                               </div>
@@ -620,15 +565,8 @@ export default function GradesTab() {
                               <div className="mt-3 space-y-2 text-sm">
                                 {answered ? (
                                   <>
-                                    <div className="rounded-lg bg-bg p-2">
-                                      <b className="text-ink-muted">إجابة الطالب: </b>
-                                      <span className={ans?.is_correct ? 'font-semibold text-secondary' : 'font-semibold text-error'}>
-                                        {ans?.text_answer === 'true' ? 'صح ✓' : ans?.text_answer === 'false' ? 'خطأ ✗' : '—'}
-                                      </span>
-                                    </div>
-                                    <div className="rounded-lg bg-secondary-soft p-2 text-secondary">
-                                      <b>الإجابة الصحيحة: </b>{k?.correct_tf ? 'صح' : 'خطأ'}
-                                    </div>
+                                    <div className="rounded-lg bg-bg p-2"><b className="text-ink-muted">إجابة الطالب: </b><span className={ans?.is_correct ? 'font-semibold text-secondary' : 'font-semibold text-error'}>{ans?.text_answer === 'true' ? 'صح ✓' : ans?.text_answer === 'false' ? 'خطأ ✗' : '—'}</span></div>
+                                    <div className="rounded-lg bg-secondary-soft p-2 text-secondary"><b>الإجابة الصحيحة: </b>{k?.correct_tf ? 'صح' : 'خطأ'}</div>
                                   </>
                                 ) : <p className="rounded-lg bg-error-soft p-2 text-error">الطالب لم يجب عن هذا السؤال.</p>}
                               </div>
@@ -637,32 +575,12 @@ export default function GradesTab() {
                             {isEssay && (
                               answered ? (
                                 <>
-                                  <div className="mt-3 whitespace-pre-wrap rounded-lg bg-bg p-3 text-sm leading-7 text-ink">
-                                    <b className="text-ink-muted">إجابة الطالب:</b><br />
-                                    {ans?.text_answer || <span className="text-ink-muted">— لم يجب —</span>}
-                                  </div>
-                                  {k?.model_answer && (
-                                    <div className="mt-2 whitespace-pre-wrap rounded-lg bg-primary-soft p-3 text-sm leading-7 text-ink">
-                                      <b className="text-primary">الإجابة النموذجية: </b>{k.model_answer}
-                                    </div>
-                                  )}
-                                  {k?.grading_criteria && (
-                                    <div className="mt-2 whitespace-pre-wrap rounded-lg bg-accent-soft/30 p-3 text-sm leading-7 text-ink">
-                                      <b className="text-primary">معايير التصحيح: </b>{k.grading_criteria}
-                                    </div>
-                                  )}
+                                  <div className="mt-3 whitespace-pre-wrap rounded-lg bg-bg p-3 text-sm leading-7 text-ink"><b className="text-ink-muted">إجابة الطالب:</b><br />{ans?.text_answer || <span className="text-ink-muted">— لم يجب —</span>}</div>
+                                  {k?.model_answer && <div className="mt-2 whitespace-pre-wrap rounded-lg bg-primary-soft p-3 text-sm leading-7 text-ink"><b className="text-primary">الإجابة النموذجية: </b>{k.model_answer}</div>}
+                                  {k?.grading_criteria && <div className="mt-2 whitespace-pre-wrap rounded-lg bg-accent-soft/30 p-3 text-sm leading-7 text-ink"><b className="text-primary">معايير التصحيح: </b>{k.grading_criteria}</div>}
                                   <div className="mt-3 flex items-center gap-3">
                                     <label className="text-sm font-semibold text-ink">الدرجة (من {q.score}):</label>
-                                    <input 
-                                      type="number" 
-                                      min={0} 
-                                      max={q.score} 
-                                      step={0.25} 
-                                      className={input + ' mt-0 w-32'} 
-                                      value={grades[q.id] ?? ''} 
-                                      onChange={(e) => setGrades({ ...grades, [q.id]: e.target.value })} 
-                                      onWheel={(e) => e.currentTarget.blur()}
-                                    />
+                                    <input type="number" min={0} max={q.score} step={0.25} className={input + ' mt-0 w-32'} value={grades[q.id] ?? ''} onChange={(e) => setGrades({ ...grades, [q.id]: e.target.value })} onWheel={(e) => e.currentTarget.blur()} />
                                   </div>
                                 </>
                               ) : <p className="mt-3 rounded-lg bg-error-soft p-2 text-sm text-error">الطالب لم يجب عن هذا السؤال.</p>
@@ -685,12 +603,10 @@ export default function GradesTab() {
         </section>
       )}
 
-      {/* ⬇️ نافذة تأكيد الحفظ */}
       {showSaveConfirm && saveSummary && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center">
             <h3 className="text-xl font-bold text-primary mb-4">تأكيد حفظ درجات المقالي</h3>
-            
             <div className="space-y-3 text-start text-sm">
               <div className="rounded-xl border border-light-blue bg-bg p-3 flex justify-between items-center">
                 <span className="font-semibold text-ink">درجة المقالي الذكي:</span>
@@ -701,13 +617,11 @@ export default function GradesTab() {
                 <span className="font-bold text-secondary text-lg">{saveSummary.reasoningScore} <span className="text-sm text-ink-muted">من {saveSummary.reasoningMax}</span></span>
               </div>
             </div>
-
             {saveSummary.missingGrades > 0 && (
               <div className="mt-4 rounded-xl bg-error-soft p-3 text-sm font-semibold text-error ring-1 ring-error/20">
                 ⚠️ تنبيه: هناك {saveSummary.missingGrades} سؤالاً مقالياً أجاب عنه الطالب ولم تضع له درجة! (سيُحسب صفراً إن أكملت).
               </div>
             )}
-
             <div className="mt-6 flex gap-2 justify-center">
               <button className={btn} onClick={() => void executeSaveGrades()}>نعم، حفظ الدرجات</button>
               <button className={btnOutline} onClick={() => setShowSaveConfirm(false)}>مراجعة</button>
