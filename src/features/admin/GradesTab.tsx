@@ -98,6 +98,10 @@ export default function GradesTab() {
   const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   const [busy, setBusy] = useState(false)
 
+  // ⬇️ إعادة حالة نافذة التأكيد
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false)
+  const [saveSummary, setSaveSummary] = useState<{ smartScore: number, smartMax: number, reasoningScore: number, reasoningMax: number, missingGrades: number } | null>(null)
+
   const load = useCallback(async () => {
     if (!supabase) return
     setLoading(true); setError(null)
@@ -143,41 +147,39 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    // ⬇️ الحل الجذري لحساب الدرجة الكاملة بدقة لكل طالب
     const totalByAttempt: Record<string, number> = {}
     const attemptIds = attempts.map(a => a.id)
     
-    let aqData: { attempt_id: string; question_id: string }[] = []
-    if (attemptIds.length > 0) {
-      const aqRes = await supabase.from('attempt_questions').select('attempt_id,question_id').in('attempt_id', attemptIds)
-      aqData = (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]
-    }
+    const activityTotals: Record<string, number> = {}
+    const attemptTotals: Record<string, number> = {}
 
-    let actAqData: { activity_id: string; question_id: string }[] = []
     if (activityIds.length > 0) {
-      const actAqRes = await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', activityIds)
-      actAqData = (actAqRes.data ?? []) as { activity_id: string; question_id: string }[]
+      const { data: aqData } = await supabase.from('activity_questions').select('activity_id, questions(score)').in('activity_id', activityIds)
+      if (aqData) {
+        for (const row of aqData) {
+          const score = (row.questions as any)?.score || 0
+          activityTotals[row.activity_id] = (activityTotals[row.activity_id] || 0) + score
+        }
+      }
     }
 
-    const allQIds = Array.from(new Set([
-      ...aqData.map(x => x.question_id),
-      ...actAqData.map(x => x.question_id)
-    ]))
-
-    const qRes = allQIds.length > 0
-      ? await supabase.from('questions').select('id,score').in('id', allQIds)
-      : { data: [] as { id: string; score: number }[], error: null }
-      
-    const scoreMap: Record<string, number> = {}
-    for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
+    if (attemptIds.length > 0) {
+      const { data: attAqData } = await supabase.from('attempt_questions').select('attempt_id, questions(score)').in('attempt_id', attemptIds)
+      if (attAqData) {
+        for (const row of attAqData) {
+          const score = (row.questions as any)?.score || 0
+          attemptTotals[row.attempt_id] = (attemptTotals[row.attempt_id] || 0) + score
+        }
+      }
+    }
 
     for (const a of attempts) {
-      const aqs = aqData.filter(x => x.attempt_id === a.id)
-      if (aqs.length > 0) {
-        totalByAttempt[a.id] = aqs.reduce((sum, x) => sum + (scoreMap[x.question_id] || 0), 0)
+      if (attemptTotals[a.id] !== undefined && attemptTotals[a.id] > 0) {
+        totalByAttempt[a.id] = attemptTotals[a.id]
+      } else if (activityTotals[a.activity_id] !== undefined && activityTotals[a.activity_id] > 0) {
+        totalByAttempt[a.id] = activityTotals[a.activity_id]
       } else {
-        const actQs = actAqData.filter(x => x.activity_id === a.activity_id)
-        totalByAttempt[a.id] = actQs.reduce((sum, x) => sum + (scoreMap[x.question_id] || 0), 0)
+        totalByAttempt[a.id] = 60 // درجة كاملة افتراضية كحل أخير
       }
     }
 
@@ -275,7 +277,35 @@ export default function GradesTab() {
     setOpen({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   }
 
-  async function saveGrades() {
+  // ⬇️ دالة تجهيز النافذة
+  function prepareSaveGrades() {
+    if (!gradingRow) return
+    let smartScore = 0, smartMax = 0
+    let reasoningScore = 0, reasoningMax = 0
+    let missingGrades = 0
+
+    for (const q of gradingQuestions) {
+      const val = grades[q.id]
+      const isAnswered = !!(gradingAnswers[q.id]?.text_answer?.trim() || gradingAnswers[q.id]?.option_id)
+      const hasGrade = val !== undefined && val.trim() !== ''
+
+      if (q.type === 'essay_smart') {
+        smartMax += q.score
+        if (hasGrade) smartScore += Number(val)
+        else if (isAnswered) missingGrades++
+      } else if (q.type === 'essay_reasoning') {
+        reasoningMax += q.score
+        if (hasGrade) reasoningScore += Number(val)
+        else if (isAnswered) missingGrades++
+      }
+    }
+
+    setSaveSummary({ smartScore, smartMax, reasoningScore, reasoningMax, missingGrades })
+    setShowSaveConfirm(true)
+  }
+
+  // ⬇️ دالة الحفظ الفعلي
+  async function executeSaveGrades() {
     if (!supabase || !gradingRow) return
     const list: { question_id: string; score: number }[] = []
     for (const [qid, raw] of Object.entries(grades)) {
@@ -283,10 +313,10 @@ export default function GradesTab() {
       if (!Number.isFinite(n) || n < 0) continue
       const q = gradingQuestions.find((x) => x.id === qid)
       if (!q) continue
-      if (n > q.score) { setError(`الدرجة المدخلة لسؤال تتجاوز الحد (${q.score}).`); return }
+      if (n > q.score) { setError(`الدرجة المدخلة لسؤال تتجاوز الحد (${q.score}).`); setShowSaveConfirm(false); return }
       list.push({ question_id: qid, score: n })
     }
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setShowSaveConfirm(false)
     const { error: rpcErr } = await supabase.rpc('grade_attempt', { p_attempt_id: gradingRow.id, p_grades: list })
     setBusy(false)
     if (rpcErr) { setError(rpcErr.message); return }
@@ -582,11 +612,39 @@ export default function GradesTab() {
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <button className={btn} onClick={() => void saveGrades()} disabled={busy}>{busy ? 'جارٍ الحفظ...' : 'حفظ الدرجات'}</button>
+            <button className={btn} onClick={prepareSaveGrades} disabled={busy}>{busy ? 'جارٍ الحفظ...' : 'حفظ الدرجات'}</button>
             <button className={btnDanger} onClick={() => void resetAttempt()} disabled={busy}>إعادة تعيين</button>
             <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }} disabled={busy}>إلغاء</button>
           </div>
         </section>
+      )}
+
+      {/* ⬇️ نافذة التأكيد التي تم إرجاعها وبأرقام صحيحة */}
+      {showSaveConfirm && saveSummary && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center">
+            <h3 className="text-xl font-bold text-primary mb-4">تأكيد حفظ درجات المقالي</h3>
+            <div className="space-y-3 text-start text-sm">
+              <div className="rounded-xl border border-light-blue bg-bg p-3 flex justify-between items-center">
+                <span className="font-semibold text-ink">درجة المقالي الذكي:</span>
+                <span className="font-bold text-secondary text-lg">{saveSummary.smartScore} <span className="text-sm text-ink-muted">من {saveSummary.smartMax}</span></span>
+              </div>
+              <div className="rounded-xl border border-light-blue bg-bg p-3 flex justify-between items-center">
+                <span className="font-semibold text-ink">درجة الاستدلال:</span>
+                <span className="font-bold text-secondary text-lg">{saveSummary.reasoningScore} <span className="text-sm text-ink-muted">من {saveSummary.reasoningMax}</span></span>
+              </div>
+            </div>
+            {saveSummary.missingGrades > 0 && (
+              <div className="mt-4 rounded-xl bg-error-soft p-3 text-sm font-semibold text-error ring-1 ring-error/20">
+                ⚠️ تنبيه: هناك {saveSummary.missingGrades} سؤالاً مقالياً أجاب عنه الطالب ولم تضع له درجة! (سيُحسب صفراً إن أكملت).
+              </div>
+            )}
+            <div className="mt-6 flex gap-2 justify-center">
+              <button className={btn} onClick={() => void executeSaveGrades()}>نعم، حفظ الدرجات</button>
+              <button className={btnOutline} onClick={() => setShowSaveConfirm(false)}>مراجعة</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
