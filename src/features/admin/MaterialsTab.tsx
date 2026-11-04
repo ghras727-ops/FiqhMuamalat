@@ -188,13 +188,14 @@ export default function MaterialsTab({ weekId: lockedWeekId }: { weekId?: string
         return
       }
 
-      const uuid = crypto.randomUUID()
+      const uuid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36)
       const ext = extOf(file.name)
       const path = `weeks/${effectiveWeekId}/${uuid}.${ext}`
 
+      // ⬇️ الحل السحري: جعل upsert: true لتخطي خطأ "الملف موجود"
       const { error: upErr } = await supabase.storage
         .from(BUCKET)
-        .upload(path, file, { contentType: file.type, upsert: false })
+        .upload(path, file, { contentType: file.type, upsert: true })
 
       if (upErr) {
         setError('فشل رفع الملف: ' + upErr.message)
