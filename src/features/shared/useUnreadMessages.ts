@@ -15,11 +15,6 @@ export interface UnreadState {
   lastSync: Date | null
 }
 
-/**
- * عدّاد الشارة الحمراء مع مراقبة حالة الاتصال و Polling احتياطي:
- * - طالب: رسائل مباشرة غير مقروءة + إعلانات نشطة لم يفتحها.
- * - أستاذ: رسائل مباشرة غير مقروءة فقط.
- */
 export function useUnreadMessages() {
   const { profile } = useAuth()
   const [state, setState] = useState<UnreadState>({
@@ -46,7 +41,6 @@ export function useUnreadMessages() {
 
     try {
       const results = await Promise.allSettled([
-        // 1) رسائل مباشرة غير مقروءة
         supabase
           .from('messages')
           .select('id', { count: 'exact', head: true })
@@ -54,12 +48,10 @@ export function useUnreadMessages() {
           .is('read_at', null)
           .eq('is_deleted', false),
 
-        // 2) معرّفات الإعلانات النشطة (للطلاب فقط)
         profile.role === 'student'
           ? supabase.from('announcements').select('id').eq('is_deleted', false)
           : Promise.resolve({ data: [] as { id: string }[], error: null }),
 
-        // 3) معرّفات الإعلانات المقروءة للطالب
         profile.role === 'student'
           ? supabase.from('announcement_reads').select('announcement_id').eq('student_id', profile.id)
           : Promise.resolve({ data: [] as { announcement_id: string }[], error: null }),
@@ -97,7 +89,6 @@ export function useUnreadMessages() {
         firstError = firstError ?? String(readRes.reason)
       }
 
-      // حساب الإعلانات النشطة التي لم يقرأها الطالب فعلياً
       const announcementCount =
         profile.role === 'student'
           ? activeAnnIds.filter((id) => !readAnnIds.has(id)).length
@@ -157,7 +148,6 @@ export function useUnreadMessages() {
 
     channelRef.current = channel
 
-    // Polling احتياطي كل 15 ثانية
     const pollTimer = setInterval(() => {
       void refresh()
     }, 15000)

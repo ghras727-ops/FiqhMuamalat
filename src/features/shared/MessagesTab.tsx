@@ -90,9 +90,6 @@ export default function MessagesTab() {
   return profile.role === 'teacher' ? <TeacherView /> : <StudentView />
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Shared: useAnnouncementReactions (مع Realtime + معالجة أخطاء)
-// ═══════════════════════════════════════════════════════════════
 function useAnnouncementReactions(announcementIds: string[], userId: string | undefined) {
   const [reactions, setReactions] = useState<AnnouncementReaction[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -288,9 +285,6 @@ function ReactionBar({
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// STUDENT VIEW
-// ═══════════════════════════════════════════════════════════════
 function StudentView() {
   const { profile } = useAuth()
   const { counts, status, lastError, refresh: refreshCounts } = useUnreadMessages()
@@ -301,7 +295,6 @@ function StudentView() {
   const [view, setView] = useState<'announcements' | 'chat'>('chat')
   const prevAnnCountRef = useRef(0)
 
-  // فتح تبويب الإعلانات تلقائياً عند وجود إعلانات غير مقروءة جديدة
   useEffect(() => {
     if (counts.announcementCount > 0 && counts.announcementCount > prevAnnCountRef.current) {
       setView('announcements')
@@ -501,7 +494,7 @@ function StudentAnnouncements({ onChanged }: { onChanged: () => void }) {
           onChanged()
         }
       } catch {
-        // تجاهل الخطأ العابر؛ سيُعاد التحديث في الدورة القادمة
+        // ignore
       }
     }
   }
@@ -627,9 +620,6 @@ function StudentAnnouncements({ onChanged }: { onChanged: () => void }) {
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// TEACHER VIEW
-// ═══════════════════════════════════════════════════════════════
 function TeacherView() {
   const { profile } = useAuth()
   const { counts, status, lastError, refresh: refreshCounts } = useUnreadMessages()
@@ -1207,9 +1197,6 @@ function TeacherAnnouncements({ meId }: { meId: string }) {
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// DIRECT CHAT (محدث — بدون حلقات لا نهائية + Polling احتياطي)
-// ═══════════════════════════════════════════════════════════════
 function DirectChat({
   meId,
   themId,
@@ -1268,7 +1255,6 @@ function DirectChat({
         setReactions([])
       }
 
-      // تحديث read_at فقط إذا وُجدت رسائل غير مقروءة فعلياً (لمنع الحلقة اللانهائية مع Realtime)
       const hasUnreadFromThem = msgs.some(
         (m) => m.recipient_id === meId && m.sender_id === themId && !m.read_at,
       )
@@ -1321,7 +1307,6 @@ function DirectChat({
 
     channelRef.current = ch
 
-    // Polling احتياطي كل 10 ثوانٍ
     const timer = setInterval(() => {
       void load()
     }, 10000)
