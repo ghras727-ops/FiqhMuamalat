@@ -25,6 +25,7 @@ export function useUnreadMessages() {
   })
 
   const mountedRef = useRef(true)
+  const channelIdRef = useRef('unread-badge-' + Math.random().toString(36).slice(2, 10))
   const channelRef = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null)
 
   const refresh = useCallback(async () => {
@@ -127,7 +128,7 @@ export function useUnreadMessages() {
     }
 
     const channel = supabase
-      .channel('unread-badge-' + profile.id)
+      .channel(`${channelIdRef.current}-${profile.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
         void refresh()
       })
