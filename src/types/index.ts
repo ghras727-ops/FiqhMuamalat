@@ -8,7 +8,6 @@ export interface Profile {
   student_no: string | null
   role: UserRole
   active: boolean
-  /** true = الطالب مُجبَر على تغيير كلمة المرور المؤقتة قبل دخول المقرر. */
   must_change_password: boolean
   created_at: string
 }
@@ -30,6 +29,8 @@ export interface Announcement {
   sender_id: string
   title: string
   body: string
+  allow_comments: boolean
+  show_commenter_names: boolean
   is_deleted?: boolean
   created_at: string
 }
@@ -39,6 +40,16 @@ export interface AnnouncementRead {
   announcement_id: string
   student_id: string
   read_at: string
+}
+
+/** صف من جدول announcement_comments (تعليقات الإعلانات). */
+export interface AnnouncementComment {
+  id: string
+  announcement_id: string
+  user_id: string
+  body: string
+  is_deleted: boolean
+  created_at: string
 }
 
 /** بيانات موجزة عن مستخدم آخر (للأسماء في الواجهة). */
