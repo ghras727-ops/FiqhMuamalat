@@ -1,5 +1,6 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { buildGradingText, copyToClipboard, type EssayItem } from './copyForGrading'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:opacity-60'
@@ -97,6 +98,7 @@ export default function GradesTab() {
   const [grades, setGrades] = useState<Record<string, string>>({})
   const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   // ⬇️ إعادة حالة نافذة التأكيد
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
@@ -275,6 +277,31 @@ export default function GradesTab() {
     setGradingRow(row); setGradingAq(aqList); setGradingQuestions(qs)
     setGradingOptions(om); setGradingKeys(km); setGradingAnswers(am); setGrades(initialGrades)
     setOpen({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
+  }
+
+  // ⬇️ نسخ الأسئلة المقالية + إجابات الطالب + البرومبت للحافظة
+  async function copyForGrading() {
+    const sorted = [...gradingAq].sort((a, b) => a.position - b.position)
+    const items: EssayItem[] = []
+    for (const t of ['essay_smart', 'essay_reasoning'] as QType[]) {
+      for (const link of sorted) {
+        const q = gradingQuestions.find((x) => x.id === link.question_id)
+        if (!q || q.type !== t) continue
+        const k = gradingKeys[q.id]
+        items.push({
+          type: q.type,
+          text: q.text,
+          score: q.score,
+          modelAnswer: k?.model_answer ?? null,
+          criteria: k?.grading_criteria ?? null,
+          answer: gradingAnswers[q.id]?.text_answer ?? null,
+        })
+      }
+    }
+    if (items.length === 0) { setError('لا أسئلة مقالية في هذه المحاولة.'); return }
+    const ok = await copyToClipboard(buildGradingText(items))
+    if (ok) { setError(null); setCopied(true); setTimeout(() => setCopied(false), 3000) }
+    else setError('تعذّر النسخ إلى الحافظة.')
   }
 
   // ⬇️ دالة تجهيز النافذة
@@ -520,7 +547,7 @@ export default function GradesTab() {
               <h3 className="text-2xl font-bold text-primary">تصحيح — {gradingRow.student_name}</h3>
               <p className="mt-1 text-sm text-ink-muted"><span className="rounded-lg bg-primary-soft px-2 py-0.5 font-bold text-primary">الأسبوع {gradingRow.week_number}</span> — {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}</p>
             </div>
-            <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
+            <div className="flex flex-wrap gap-2"><button className={btnSuccess} onClick={() => void copyForGrading()}>{copied ? '✅ تم النسخ' : '📋 نسخ للتصحيح'}</button><button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}); setCopied(false) }}>إغلاق</button></div>
           </div>
 
           <div className="space-y-4">
