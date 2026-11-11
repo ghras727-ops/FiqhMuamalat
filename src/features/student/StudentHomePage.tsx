@@ -1,25 +1,26 @@
-import { useCallback, useEffect, useState, lazy, Suspense } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../app/auth-context'
 import { supabase } from '../../lib/supabase'
 import FeedTab from './FeedTab'
+import WeekPacksView from './WeekPacksView'
+import SelfTestTab from './SelfTestTab'
+import StudentAssignmentsTab from './StudentAssignmentsTab'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import Tag from '../../components/Tag'
 import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
 import MessagesTab from '../shared/MessagesTab'
 import { useUnreadMessages } from '../shared/useUnreadMessages'
-
-const WeekPacksView = lazy(() => import('./WeekPacksView'))
-const SelfTestTab = lazy(() => import('./SelfTestTab'))
-const StudentAssignmentsTab = lazy(() => import('./StudentAssignmentsTab'))
+import ComprehensiveReport, { type ComprehensiveSnapshot } from '../shared/ComprehensiveReport'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
 const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
+const btnDanger = 'rounded-xl border border-error bg-white px-4 py-2 text-sm font-semibold text-error hover:bg-error-soft disabled:opacity-60'
 const th = 'p-3 text-start text-ink-muted'
 
 interface ActivityRow { id: string; title: string; week_number: number; total_possible: number }
 interface AttemptRow { id: string; activity_id: string; auto_score: number; manual_score: number | null; status: string; submitted_at: string | null }
-interface MyReport { id: string; type: string; from_week_number: number; to_week_number: number; report_number: string | null; approved_at: string; seen_at: string | null; teacher_note: string | null; snapshot: ReportSnapshot }
+interface MyReport { id: string; type: string; from_week_number: number; to_week_number: number; report_number: string | null; approved_at: string; seen_at: string | null; teacher_note: string | null; snapshot?: ReportSnapshot }
 
 function timeAgo(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000
@@ -51,7 +52,6 @@ export default function StudentHomePage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [mounted, setMounted] = useState<string[]>(['feed'])
   
-  // شارات "جديد"
   const [hasNewAssignments, setHasNewAssignments] = useState(false)
   const [hasNewReports, setHasNewReports] = useState(false)
 
@@ -62,6 +62,11 @@ export default function StudentHomePage() {
   const [error, setError] = useState<string | null>(null)
   const [reports, setReports] = useState<MyReport[]>([])
   const [viewingReport, setViewingReport] = useState<MyReport | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+
+  const [studentCompSnapshot, setStudentCompSnapshot] = useState<ComprehensiveSnapshot | null>(null)
+  const [compBusy, setCompBusy] = useState(false)
+  const [weeks, setWeeks] = useState<{id: string, number: number, title: string}[]>([])
 
   useEffect(() => { setMounted((prev) => (prev.includes(tab) ? prev : [...prev, tab])) }, [tab])
 
@@ -69,53 +74,33 @@ export default function StudentHomePage() {
     if (!supabase) return
     setError(null)
 
-    const [aRes, atRes, rpRes, asgRes] = await Promise.all([
+    // تم إزالة snapshot من هنا لتسريع التحميل
+    const [aRes, atRes, rpRes, asgRes, wRes] = await Promise.all([
       supabase.from('activities').select('id,title,week_id'),
       supabase.from('attempts').select('id,activity_id,auto_score,manual_score,status,submitted_at'),
-      supabase.from('weekly_reports').select('id,type,from_week_number,to_week_number,report_number,approved_at,seen_at,teacher_note,snapshot').eq('status', 'active').order('approved_at', { ascending: false }),
-      supabase.from('assignments').select('id, created_at').eq('published', true).order('created_at', { ascending: false }).limit(1)
+      supabase.from('weekly_reports').select('id,type,from_week_number,to_week_number,report_number,approved_at,seen_at,teacher_note').eq('status', 'active').order('approved_at', { ascending: false }),
+      supabase.from('assignments').select('id, created_at').eq('published', true).order('created_at', { ascending: false }).limit(1),
+      supabase.from('weeks').select('id,number,title').order('number')
     ])
 
     if (aRes.error || atRes.error || rpRes.error) { setError('تعذّر تحميل البيانات.'); return }
 
     const acts = (aRes.data ?? []) as { id: string; title: string; week_id: string }[]
-    const weekIds = Array.from(new Set(acts.map((a) => a.week_id)))
-    const wRes = weekIds.length > 0 ? await supabase.from('weeks').select('id,number').in('id', weekIds) : { data: [], error: null }
-    const weekMap: Record<string, number> = {}
-    for (const w of (wRes.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
+    const wMap: Record<string, {num: number, title: string}> = {}
+    for (const w of (wRes.data ?? []) as {id: string, number: number, title: string}[]) wMap[w.id] = {num: w.number, title: w.title}
+
+    setWeeks((wRes.data ?? []) as {id: string, number: number, title: string}[])
 
     const am: Record<string, AttemptRow> = {}
     for (const t of (atRes.data ?? []) as AttemptRow[]) am[t.activity_id] = t
-    
-    // ⬇️ التعديل الجذري: جلب الأسئلة من attempt_questions للطالب، وليس من بنك الأسئلة العام
-    const attemptIds = Object.values(am).map(t => t.id)
-    const aqRes = attemptIds.length > 0 ? await supabase.from('attempt_questions').select('attempt_id,question_id').in('attempt_id', attemptIds) : { data: [], error: null }
-    
-    const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
-    const qRes = qIds.length > 0 ? await supabase.from('questions').select('id,score').in('id', qIds) : { data: [], error: null }
-    const scoreMap: Record<string, number> = {}
-    for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
-    
-    // ربط الدرجة بـ attempt_id ثم تحويلها لـ activity_id لتناسب الواجهة
-    const totalByAttempt: Record<string, number> = {}
-    for (const link of (aqRes.data ?? []) as { attempt_id: string; question_id: string }[]) {
-      totalByAttempt[link.attempt_id] = (totalByAttempt[link.attempt_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
-    }
-    
-    const totalByAct: Record<string, number> = {}
-    for (const t of Object.values(am)) {
-      if (totalByAttempt[t.id]) {
-        totalByAct[t.activity_id] = totalByAttempt[t.id]
-      }
-    }
 
-    setActivities(acts.map((a) => ({ id: a.id, title: a.title, week_number: weekMap[a.week_id] ?? 0, total_possible: totalByAct[a.id] ?? 0 })))
+    // إلغاء سلسلة الاستعلامات وتسريع الواجهة، الدرجة الكاملة ثابتة 60
+    setActivities(acts.map((a) => ({ id: a.id, title: a.title, week_number: wMap[a.week_id]?.num ?? 0, total_possible: 60 })))
     setAttempts(am)
 
     const reps = (rpRes.data ?? []) as MyReport[]
     setReports(reps)
 
-    // فحص الإشعارات (شارة حمراء)
     const lastSeenAsg = localStorage.getItem('last_seen_assignments')
     if (asgRes.data && asgRes.data.length > 0) {
       const latestAsg = asgRes.data[0].created_at
@@ -138,13 +123,11 @@ export default function StudentHomePage() {
 
   useEffect(() => { void initialLoad() }, [initialLoad])
 
-  // ⬇️ التحديث التلقائي (F5) عند الانتقال بين التبويبات
   useEffect(() => {
     setRefreshKey((prev) => prev + 1)
-    void refresh() // تحديث البيانات الرئيسية (الدرجات، التقارير)
+    void refresh()
   }, [tab, refresh])
 
-  // إخفاء الإشعار عند فتح التبويب
   useEffect(() => {
     if (tab === 'assignments' && hasNewAssignments) {
       localStorage.setItem('last_seen_assignments', new Date().toISOString())
@@ -160,6 +143,48 @@ export default function StudentHomePage() {
     if (!r.seen_at && supabase) {
       await supabase.rpc('mark_report_seen', { p_report_id: r.id })
       setReports((prev) => prev.map((x) => x.id === r.id ? { ...x, seen_at: new Date().toISOString() } : x))
+    }
+    // جلب التقرير الكامل فقط عند الضغط عليه
+    if (!r.snapshot && supabase) {
+      setReportLoading(true)
+      const { data } = await supabase.from('weekly_reports').select('snapshot').eq('id', r.id).single()
+      if (data) {
+        setViewingReport({ ...r, snapshot: data.snapshot })
+      }
+      setReportLoading(false)
+    }
+  }
+
+  async function openMyComprehensiveReport() {
+    if (!supabase || !profile) return
+    setCompBusy(true); setError(null)
+    try {
+      const grades = activities.filter(a => attempts[a.id]?.status === 'graded').map(a => {
+        const at = attempts[a.id]!
+        const score = at.auto_score + (at.manual_score ?? 0)
+        const max = a.total_possible || 60
+        const weekName = weeks.find(w => w.number === a.week_number)?.title || a.title
+        return { week: a.week_number, title: weekName, score, max, percent: Math.min(100, Math.round((score/max)*100)), status: at.status }
+      })
+
+      const { data: att } = await supabase.from('attendance').select('week_id, status').eq('student_id', profile.id)
+      const attendance = (att ?? []).map(a => {
+         const week = weeks.find(w => w.id === a.week_id)
+         return { week: week ? week.number : 0, status: a.status }
+      }).filter(a => a.week > 0).sort((a,b) => a.week - b.week)
+
+      setStudentCompSnapshot({
+        student: { full_name: profile.full_name, student_no: profile.student_no },
+        from_week: 1, to_week: weeks.length ? Math.max(...weeks.map(w=>w.number)) : 1,
+        generated_at: new Date().toISOString(),
+        grades: grades.sort((a,b) => a.week - b.week),
+        attendance,
+        options: { showGrades: true, showAttendance: true }
+      })
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setCompBusy(false)
     }
   }
 
@@ -186,14 +211,11 @@ export default function StudentHomePage() {
       </div>
 
       {mounted.includes('feed') && <div key={refreshKey} style={show('feed')}><FeedTab /></div>}
-      
-      <Suspense fallback={<div className="p-8 text-center text-primary font-bold">جارٍ التحميل...</div>}>
-        {mounted.includes('lessons') && <div key={refreshKey} style={show('lessons')}><WeekPacksView /></div>}
-        {mounted.includes('selftest') && <div key={refreshKey} style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
-        {mounted.includes('assignments') && <div key={refreshKey} style={show('assignments')}><StudentAssignmentsTab /></div>}
-      </Suspense>
-
+      {mounted.includes('lessons') && <div key={refreshKey} style={show('lessons')}><WeekPacksView /></div>}
+      {mounted.includes('selftest') && <div key={refreshKey} style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
       {mounted.includes('messages') && <div style={show('messages')}><MessagesTab /></div>}
+      
+      {mounted.includes('assignments') && <div key={refreshKey} style={show('assignments')}><StudentAssignmentsTab /></div>}
 
       {mounted.includes('acts') && (
         <div style={show('acts')}>
@@ -244,7 +266,12 @@ export default function StudentHomePage() {
             <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div><h2 className="text-3xl font-bold">درجاتي</h2><p className="mt-1 text-base text-white/85">نتائجك في الأنشطة المصححة.</p></div>
-                <button className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}</button>
+                <div className="flex flex-wrap gap-2">
+                  <button className="rounded-xl bg-white/20 px-5 py-2.5 text-base font-bold text-white shadow-md hover:bg-white/30 disabled:opacity-60" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}</button>
+                  <button className="rounded-xl bg-secondary px-5 py-2.5 text-base font-bold text-white shadow-md hover:bg-secondary-hover disabled:opacity-60" onClick={() => void openMyComprehensiveReport()} disabled={compBusy}>
+                    {compBusy ? '...' : '📄 استخراج تقريري الشامل'}
+                  </button>
+                </div>
               </div>
             </section>
 
@@ -310,9 +337,30 @@ export default function StudentHomePage() {
               <div className="flex flex-wrap gap-2"><button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button><button className={btn} onClick={() => setViewingReport(null)}>إغلاق</button></div>
             </div>
             <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <WeeklyReport snapshot={viewingReport.snapshot} reportNumber={viewingReport.report_number} approvedAt={viewingReport.approved_at} teacherNote={viewingReport.teacher_note} />
+              {reportLoading || !viewingReport.snapshot ? (
+                <div className="p-12 text-center text-primary font-bold text-lg">⏳ جارٍ تحميل التقرير...</div>
+              ) : (
+                <WeeklyReport snapshot={viewingReport.snapshot} reportNumber={viewingReport.report_number} approvedAt={viewingReport.approved_at} teacherNote={viewingReport.teacher_note} />
+              )}
             </div>
           </div>
+        </div>
+      )}
+
+      {studentCompSnapshot && (
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/70 p-2 md:p-6 print:bg-white print:p-0">
+           <div className="mx-auto max-w-[210mm]">
+             <div className="no-print sticky top-0 z-10 mb-3 flex justify-between rounded-2xl bg-white p-3 shadow-lg">
+                <div className="font-bold text-primary">تقريري الشامل</div>
+                <div className="flex gap-2">
+                  <button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button>
+                  <button className={btnDanger} onClick={() => setStudentCompSnapshot(null)}>إغلاق</button>
+                </div>
+             </div>
+             <div className="bg-white shadow-2xl print:shadow-none">
+               <ComprehensiveReport snapshot={studentCompSnapshot} />
+             </div>
+           </div>
         </div>
       )}
     </AppShell>
