@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, lazy, Suspense } from 'react'
 import { useAuth } from '../../app/auth-context'
 import { supabase } from '../../lib/supabase'
 import FeedTab from './FeedTab'
-import WeekPacksView from './WeekPacksView'
-import SelfTestTab from './SelfTestTab'
-import StudentAssignmentsTab from './StudentAssignmentsTab'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import Tag from '../../components/Tag'
 import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
 import MessagesTab from '../shared/MessagesTab'
 import { useUnreadMessages } from '../shared/useUnreadMessages'
+
+const WeekPacksView = lazy(() => import('./WeekPacksView'))
+const SelfTestTab = lazy(() => import('./SelfTestTab'))
+const StudentAssignmentsTab = lazy(() => import('./StudentAssignmentsTab'))
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
@@ -185,12 +186,14 @@ export default function StudentHomePage() {
       </div>
 
       {mounted.includes('feed') && <div key={refreshKey} style={show('feed')}><FeedTab /></div>}
-      {mounted.includes('lessons') && <div key={refreshKey} style={show('lessons')}><WeekPacksView /></div>}
-      {mounted.includes('selftest') && <div key={refreshKey} style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
-      {mounted.includes('messages') && <div style={show('messages')}><MessagesTab /></div>}
       
-      {/* تبويب التكاليف الجديد */}
-      {mounted.includes('assignments') && <div key={refreshKey} style={show('assignments')}><StudentAssignmentsTab /></div>}
+      <Suspense fallback={<div className="p-8 text-center text-primary font-bold">جارٍ التحميل...</div>}>
+        {mounted.includes('lessons') && <div key={refreshKey} style={show('lessons')}><WeekPacksView /></div>}
+        {mounted.includes('selftest') && <div key={refreshKey} style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
+        {mounted.includes('assignments') && <div key={refreshKey} style={show('assignments')}><StudentAssignmentsTab /></div>}
+      </Suspense>
+
+      {mounted.includes('messages') && <div style={show('messages')}><MessagesTab /></div>}
 
       {mounted.includes('acts') && (
         <div style={show('acts')}>
