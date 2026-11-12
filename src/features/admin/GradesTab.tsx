@@ -100,6 +100,10 @@ export default function GradesTab() {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
 
+  // ⬇️ نافذة التأكيد
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false)
+  const [saveSummary, setSaveSummary] = useState<{ smartScore: number, smartMax: number, reasoningScore: number, reasoningMax: number, missingGrades: number } | null>(null)
+
   const load = useCallback(async () => {
     if (!supabase) return
     setLoading(true); setError(null)
@@ -145,7 +149,7 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    // تثبيت الدرجة الكاملة على 60
+    // ⬇️ تثبيت الدرجة الكاملة على 60
     const out: AttemptRow[] = attempts.map((a) => {
       const info = nameMap[a.student_id]
       const act = actMap[a.activity_id]
@@ -253,7 +257,35 @@ export default function GradesTab() {
     }
   }
 
-  async function saveGrades() {
+  // ⬇️ دالة تجهيز النافذة
+  function prepareSaveGrades() {
+    if (!gradingRow) return
+    let smartScore = 0, smartMax = 0
+    let reasoningScore = 0, reasoningMax = 0
+    let missingGrades = 0
+
+    for (const q of gradingQuestions) {
+      const val = grades[q.id]
+      const isAnswered = !!(gradingAnswers[q.id]?.text_answer?.trim() || gradingAnswers[q.id]?.option_id)
+      const hasGrade = val !== undefined && val.trim() !== ''
+
+      if (q.type === 'essay_smart') {
+        smartMax += q.score
+        if (hasGrade) smartScore += Number(val)
+        else if (isAnswered) missingGrades++
+      } else if (q.type === 'essay_reasoning') {
+        reasoningMax += q.score
+        if (hasGrade) reasoningScore += Number(val)
+        else if (isAnswered) missingGrades++
+      }
+    }
+
+    setSaveSummary({ smartScore, smartMax, reasoningScore, reasoningMax, missingGrades })
+    setShowSaveConfirm(true)
+  }
+
+  // ⬇️ دالة الحفظ الفعلي
+  async function executeSaveGrades() {
     if (!supabase || !gradingRow) return
     const list: { question_id: string; score: number }[] = []
     for (const [qid, raw] of Object.entries(grades)) {
@@ -261,10 +293,10 @@ export default function GradesTab() {
       if (!Number.isFinite(n) || n < 0) continue
       const q = gradingQuestions.find((x) => x.id === qid)
       if (!q) continue
-      if (n > q.score) { setError(`الدرجة المدخلة لسؤال تتجاوز الحد (${q.score}).`); return }
+      if (n > q.score) { setError(`الدرجة المدخلة لسؤال تتجاوز الحد (${q.score}).`); setShowSaveConfirm(false); return }
       list.push({ question_id: qid, score: n })
     }
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setShowSaveConfirm(false)
     const { error: rpcErr } = await supabase.rpc('grade_attempt', { p_attempt_id: gradingRow.id, p_grades: list })
     setBusy(false)
     if (rpcErr) { setError(rpcErr.message); return }
@@ -456,7 +488,10 @@ export default function GradesTab() {
               <p className="mt-1 text-sm text-ink-muted"><span className="rounded-lg bg-primary-soft px-2 py-0.5 font-bold text-primary">الأسبوع {gradingRow.week_number}</span> — {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}</p>
             </div>
             <div className="flex gap-2">
-              <button className={btnOutline + (copied ? ' bg-secondary-soft text-secondary border-secondary' : '')} onClick={() => void handleCopy()}>
+              <button 
+                className={copied ? btnSuccess : btnOutline} 
+                onClick={() => void handleCopy()}
+              >
                 {copied ? '✅ تم النسخ' : '📋 نسخ للتصحيح'}
               </button>
               <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
@@ -551,11 +586,39 @@ export default function GradesTab() {
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <button className={btn} onClick={() => void saveGrades()} disabled={busy}>{busy ? 'جارٍ الحفظ...' : 'حفظ الدرجات'}</button>
+            <button className={btn} onClick={prepareSaveGrades} disabled={busy}>{busy ? 'جارٍ الحفظ...' : 'حفظ الدرجات'}</button>
             <button className={btnDanger} onClick={() => void resetAttempt()} disabled={busy}>إعادة تعيين</button>
             <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }} disabled={busy}>إلغاء</button>
           </div>
         </section>
+      )}
+
+      {/* ⬇️ نافذة التأكيد */}
+      {showSaveConfirm && saveSummary && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center">
+            <h3 className="text-xl font-bold text-primary mb-4">تأكيد حفظ درجات المقالي</h3>
+            <div className="space-y-3 text-start text-sm">
+              <div className="rounded-xl border border-light-blue bg-bg p-3 flex justify-between items-center">
+                <span className="font-semibold text-ink">درجة المقالي الذكي:</span>
+                <span className="font-bold text-secondary text-lg">{saveSummary.smartScore} <span className="text-sm text-ink-muted">من {saveSummary.smartMax}</span></span>
+              </div>
+              <div className="rounded-xl border border-light-blue bg-bg p-3 flex justify-between items-center">
+                <span className="font-semibold text-ink">درجة الاستدلال:</span>
+                <span className="font-bold text-secondary text-lg">{saveSummary.reasoningScore} <span className="text-sm text-ink-muted">من {saveSummary.reasoningMax}</span></span>
+              </div>
+            </div>
+            {saveSummary.missingGrades > 0 && (
+              <div className="mt-4 rounded-xl bg-error-soft p-3 text-sm font-semibold text-error ring-1 ring-error/20">
+                ⚠️ تنبيه: هناك {saveSummary.missingGrades} سؤالاً مقالياً أجاب عنه الطالب ولم تضع له درجة! (سيُحسب صفراً إن أكملت).
+              </div>
+            )}
+            <div className="mt-6 flex gap-2 justify-center">
+              <button className={btn} onClick={() => void executeSaveGrades()}>نعم، حفظ الدرجات</button>
+              <button className={btnOutline} onClick={() => setShowSaveConfirm(false)}>مراجعة</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
