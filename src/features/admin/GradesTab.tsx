@@ -143,43 +143,7 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    // ⬇️ الحل الجذري: فصل الاستعلامات ودمجها برمجياً (مطابق لطريقة واجهة الطالب)
-    const totalByAttempt: Record<string, number> = {}
-    const attemptIds = attempts.map(a => a.id)
-    
-    let attemptQuestionsData: { attempt_id: string; question_id: string }[] = []
-    if (attemptIds.length > 0) {
-      const { data } = await supabase.from('attempt_questions').select('attempt_id, question_id').in('attempt_id', attemptIds)
-      attemptQuestionsData = (data ?? []) as { attempt_id: string; question_id: string }[]
-    }
-
-    let activityQuestionsData: { activity_id: string; question_id: string }[] = []
-    if (activityIds.length > 0) {
-      const { data } = await supabase.from('activity_questions').select('activity_id, question_id').in('activity_id', activityIds)
-      activityQuestionsData = (data ?? []) as { activity_id: string; question_id: string }[]
-    }
-
-    const allQIds = Array.from(new Set([
-      ...attemptQuestionsData.map(x => x.question_id),
-      ...activityQuestionsData.map(x => x.question_id)
-    ]))
-
-    const qScores: Record<string, number> = {}
-    if (allQIds.length > 0) {
-      const { data } = await supabase.from('questions').select('id, score').in('id', allQIds)
-      for (const q of (data ?? []) as { id: string; score: number }[]) qScores[q.id] = q.score
-    }
-
-    for (const a of attempts) {
-      const aqs = attemptQuestionsData.filter(x => x.attempt_id === a.id)
-      if (aqs.length > 0) {
-        totalByAttempt[a.id] = aqs.reduce((sum, x) => sum + (qScores[x.question_id] || 0), 0)
-      } else {
-        const actQs = activityQuestionsData.filter(x => x.activity_id === a.activity_id)
-        totalByAttempt[a.id] = actQs.reduce((sum, x) => sum + (qScores[x.question_id] || 0), 0)
-      }
-    }
-
+    // ⬇️ الحل الجذري: تثبيت الدرجة الكاملة على 60 لكل الطلاب
     const out: AttemptRow[] = attempts.map((a) => {
       const info = nameMap[a.student_id]
       const act = actMap[a.activity_id]
@@ -189,7 +153,7 @@ export default function GradesTab() {
         activity_title: act?.title ?? '—',
         week_number: act ? (weekMap[act.week_id] ?? 0) : 0,
         auto_score: a.auto_score, manual_score: a.manual_score,
-        total_possible: totalByAttempt[a.id] || 60,
+        total_possible: 60,
         status: a.status, submitted_at: a.submitted_at,
       }
     })
