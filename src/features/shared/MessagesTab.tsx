@@ -132,7 +132,6 @@ function StudentAnnouncements({ onChanged }: { onChanged: () => void }) {
       }
       setComments(map)
       
-      // جلب أسماء المعلقين
       if (uids.size > 0) {
         const pRes = await supabase.from('profiles').select('id, full_name').in('id', Array.from(uids))
         if (!pRes.error) {
@@ -147,7 +146,6 @@ function StudentAnnouncements({ onChanged }: { onChanged: () => void }) {
 
   useEffect(() => { void load() }, [load])
 
-  // Realtime
   useEffect(() => {
     if (!supabase || !profileId) return
     const ch = supabase.channel('student-ann-' + profileId)
@@ -319,7 +317,6 @@ function TeacherConversations({ meId, onChanged }: { meId: string; onChanged: ()
     const unread: Record<string, number> = {}
     for (const r of (unreadRes.data ?? []) as { sender_id: string }[]) unread[r.sender_id] = (unread[r.sender_id] || 0) + 1
 
-    // حساب آخر رسالة لكل طالب
     const lastMsg: Record<string, Message> = {}
     for (const m of msgs) {
       const other = m.sender_id === meId ? m.recipient_id : m.sender_id
@@ -354,7 +351,6 @@ function TeacherConversations({ meId, onChanged }: { meId: string; onChanged: ()
     return () => { void supabase!.removeChannel(ch) }
   }, [meId, load])
 
-  // بحث عن طلاب جدد
   useEffect(() => {
     if (!supabase || !search.trim()) { setSearchResults([]); return }
     const timer = setTimeout(async () => {
@@ -614,7 +610,7 @@ function DirectChat({ meId, themId, themName, onReadOrSent }: {
       const { data: rx } = await supabase.from('message_reactions').select('*').in('message_id', msgs.map(m => m.id))
       setReactions((rx ?? []) as MessageReaction[])
     } else setReactions([])
-    // تعليم كمقروء فقط إذا هناك غير مقروء
+    
     const hasUnread = msgs.some(m => m.recipient_id === meId && !m.read_at)
     if (hasUnread) {
       await supabase.from('messages').update({ read_at: new Date().toISOString() })
@@ -668,7 +664,6 @@ function DirectChat({ meId, themId, themName, onReadOrSent }: {
         <button onClick={() => void load()} className={btnOutline}>🔄 تحديث</button>
       </div>
 
-      {/* ⬇️ المفتاح: ارتفاع ثابت + input ثابت */}
       <div className="flex flex-col" style={{ height: '600px' }}>
         <div className="flex-1 overflow-y-auto rounded-xl border-2 border-light-blue bg-bg/50 p-3 space-y-3" onClick={() => { setOpenPicker(null); setShowMore(null) }}>
           {loading ? <p className="text-center py-8 text-ink-muted">⏳ جارٍ التحميل...</p>
@@ -720,7 +715,6 @@ function DirectChat({ meId, themId, themName, onReadOrSent }: {
                     </div>
                   </div>
 
-                  {/* التفاعلات تحت الرسالة */}
                   <div className={`mt-1 flex flex-wrap items-center gap-1.5 px-1 ${mine ? 'justify-start' : 'justify-end'}`}>
                     {Object.entries(grouped).map(([e, count]) => {
                       const isMine = msgRx.some(r => r.user_id === meId && r.emoji === e)
@@ -742,17 +736,27 @@ function DirectChat({ meId, themId, themName, onReadOrSent }: {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input ثابت */}
-        <div className="mt-3 flex gap-2 flex-shrink-0">
-          <textarea
-            className={input + ' flex-1 resize-none'}
-            rows={2}
-            placeholder="اكتب رسالتك..."
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-          />
-          <button className={btn + ' px-6'} onClick={() => void send()} disabled={busy || !text.trim()}>إرسال</button>
+        <div className="mt-3 flex flex-col gap-2 flex-shrink-0">
+          <div className="flex gap-2">
+            <textarea
+              className={input + ' mt-0 flex-1 resize-none'}
+              rows={3}
+              placeholder="اكتب رسالتك هنا (ملاحظاتك التفصيلية)..."
+              value={text}
+              onChange={e => setText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+              maxLength={5000}
+            />
+            <button className={btn + ' px-6 self-end h-12'} onClick={() => void send()} disabled={busy || !text.trim()}>
+              {busy ? '...' : 'إرسال'}
+            </button>
+          </div>
+          <div className="flex justify-between items-center px-1 text-[11px] font-semibold text-ink-muted">
+            <span>اضغط Enter للإرسال، و Shift+Enter لسطر جديد.</span>
+            <span className={text.length > 4500 ? 'text-error font-bold' : ''}>
+              {text.length} / 5000 حرف
+            </span>
+          </div>
         </div>
       </div>
     </section>
