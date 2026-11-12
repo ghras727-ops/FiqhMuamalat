@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { copyForGrading } from './copyForGrading'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:opacity-60'
@@ -97,6 +98,7 @@ export default function GradesTab() {
   const [grades, setGrades] = useState<Record<string, string>>({})
   const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const load = useCallback(async () => {
     if (!supabase) return
@@ -143,7 +145,7 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    // ⬇️ الحل الجذري: تثبيت الدرجة الكاملة على 60 لكل الطلاب
+    // تثبيت الدرجة الكاملة على 60
     const out: AttemptRow[] = attempts.map((a) => {
       const info = nameMap[a.student_id]
       const act = actMap[a.activity_id]
@@ -201,6 +203,7 @@ export default function GradesTab() {
   async function openGrading(row: AttemptRow) {
     if (!supabase) return
     setError(null); setSuccess(null); setBusy(true)
+    setCopied(false)
     
     let { data: aqData } = await supabase.from('attempt_questions').select('question_id,position').eq('attempt_id', row.id).order('position')
     let aqList = (aqData ?? []) as AQ[]
@@ -236,6 +239,18 @@ export default function GradesTab() {
     setGradingRow(row); setGradingAq(aqList); setGradingQuestions(qs)
     setGradingOptions(om); setGradingKeys(km); setGradingAnswers(am); setGrades(initialGrades)
     setOpen({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
+  }
+
+  async function handleCopy() {
+    if (!gradingRow) return
+    const text = copyForGrading(gradingRow, gradingQuestions, gradingAnswers, gradingKeys)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 3000)
+    } catch {
+      setError('تعذّر النسخ إلى الحافظة. قد تحتاج إلى استخدام متصفح حديث.')
+    }
   }
 
   async function saveGrades() {
@@ -440,7 +455,12 @@ export default function GradesTab() {
               <h3 className="text-2xl font-bold text-primary">تصحيح — {gradingRow.student_name}</h3>
               <p className="mt-1 text-sm text-ink-muted"><span className="rounded-lg bg-primary-soft px-2 py-0.5 font-bold text-primary">الأسبوع {gradingRow.week_number}</span> — {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}</p>
             </div>
-            <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
+            <div className="flex gap-2">
+              <button className={btnOutline + (copied ? ' bg-secondary-soft text-secondary border-secondary' : '')} onClick={() => void handleCopy()}>
+                {copied ? '✅ تم النسخ' : '📋 نسخ للتصحيح'}
+              </button>
+              <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
+            </div>
           </div>
 
           <div className="space-y-4">
