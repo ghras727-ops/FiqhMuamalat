@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { copyForGrading } from './copyForGrading'
 
@@ -88,6 +88,9 @@ export default function GradesTab() {
   const [success, setSuccess] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [selectedWeek, setSelectedWeek] = useState<WeekFilter>('all')
+  
+  // مرجع لمعرفة ما إذا كنا قد حددنا الأسبوع الافتراضي مسبقاً
+  const initializedRef = useRef(false)
 
   const [gradingRow, setGradingRow] = useState<AttemptRow | null>(null)
   const [gradingQuestions, setGradingQuestions] = useState<Question[]>([])
@@ -100,7 +103,6 @@ export default function GradesTab() {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  // ⬇️ نافذة التأكيد
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [saveSummary, setSaveSummary] = useState<{ smartScore: number, smartMax: number, reasoningScore: number, reasoningMax: number, missingGrades: number } | null>(null)
 
@@ -117,7 +119,8 @@ export default function GradesTab() {
     if (wRes.error || att.error) { setError('تعذّر تحميل النتائج.'); setLoading(false); return }
     if (rq.error) { setError('تعذّر تحميل طلبات الإعادة.'); setLoading(false); return }
 
-    setWeeks((wRes.data ?? []) as WeekInfo[])
+    const wkList = (wRes.data ?? []) as WeekInfo[]
+    setWeeks(wkList)
 
     const attempts = (att.data ?? []) as RawAttempt[]
     const reqs = (rq.data ?? []) as { id: string; activity_id: string; student_id: string; attempt_id: string | null; reason: string; created_at: string }[]
@@ -149,7 +152,7 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    // ⬇️ تثبيت الدرجة الكاملة على 60
+    // تثبيت الدرجة الكاملة على 60
     const out: AttemptRow[] = attempts.map((a) => {
       const info = nameMap[a.student_id]
       const act = actMap[a.activity_id]
@@ -177,6 +180,14 @@ export default function GradesTab() {
       }
     })
     setRetakeRequests(reqOut)
+
+    // ⬇️ التعديل هنا: تحديد آخر أسبوع كافتراضي في أول تحميل فقط
+    if (!initializedRef.current && wkList.length > 0) {
+      const maxWeek = Math.max(...wkList.map(w => w.number))
+      setSelectedWeek(maxWeek)
+      initializedRef.current = true
+    }
+
     setLoading(false)
   }, [])
 
@@ -257,7 +268,6 @@ export default function GradesTab() {
     }
   }
 
-  // ⬇️ دالة تجهيز النافذة
   function prepareSaveGrades() {
     if (!gradingRow) return
     let smartScore = 0, smartMax = 0
@@ -284,7 +294,6 @@ export default function GradesTab() {
     setShowSaveConfirm(true)
   }
 
-  // ⬇️ دالة الحفظ الفعلي
   async function executeSaveGrades() {
     if (!supabase || !gradingRow) return
     const list: { question_id: string; score: number }[] = []
@@ -360,6 +369,9 @@ export default function GradesTab() {
     if (q) grouped[q.type].push(link)
   }
 
+  // ⬇️ حساب الأسابيع التي تحتوي على أوراق بانتظار التصحيح
+  const pendingWeeks = new Set(rows.filter(r => r.status === 'submitted').map(r => r.week_number))
+
   return (
     <div className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
@@ -407,14 +419,25 @@ export default function GradesTab() {
             onClick={() => setSelectedWeek('all')}
             className={'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' + (selectedWeek === 'all' ? 'border-primary bg-primary text-white shadow-md' : 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft')}
           >الكل ({rows.length})</button>
+          
           {weeks.map((w) => {
             const count = rows.filter((r) => r.week_number === w.number).length
             const active = selectedWeek === w.number
             const hasAttempts = count > 0
+            const hasPending = pendingWeeks.has(w.number)
+            
             return (
               <button key={w.id} onClick={() => setSelectedWeek(w.number)} disabled={!hasAttempts}
-                className={'rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' + (active ? 'border-primary bg-primary text-white shadow-md' : hasAttempts ? 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft' : 'cursor-not-allowed border-ink/10 bg-bg text-ink/30')}
-              >الأسبوع {w.number} ({count})</button>
+                className={'relative rounded-xl border-2 px-4 py-2 text-sm font-bold transition ' + (active ? 'border-primary bg-primary text-white shadow-md' : hasAttempts ? 'border-light-blue bg-white text-ink-muted hover:border-primary/40 hover:bg-primary-soft' : 'cursor-not-allowed border-ink/10 bg-bg text-ink/30')}
+              >
+                الأسبوع {w.number} ({count})
+                {/* ⬇️ شارة التصحيح المعلق */}
+                {hasPending && !active && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-error text-[10px] font-bold text-white shadow-sm ring-2 ring-white" title="يوجد أوراق بانتظار التصحيح">
+                    !
+                  </span>
+                )}
+              </button>
             )
           })}
         </div>
@@ -593,7 +616,6 @@ export default function GradesTab() {
         </section>
       )}
 
-      {/* ⬇️ نافذة التأكيد */}
       {showSaveConfirm && saveSummary && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center">
