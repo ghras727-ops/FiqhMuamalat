@@ -97,7 +97,8 @@ export default function GradesTab() {
   const [gradingAq, setGradingAq] = useState<AQ[]>([])
   const [gradingAnswers, setGradingAnswers] = useState<Record<string, AnswerRow>>({})
   const [grades, setGrades] = useState<Record<string, string>>({})
-  const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: true, tf: true, essay_smart: true, essay_reasoning: true })
+  // ⬇️ تم إرجاع الأقسام لتكون مطوية افتراضياً (false)
+  const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   const [busy, setBusy] = useState(false)
 
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
@@ -149,13 +150,10 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    // ⬇️ الحساب الجديد: حساب المقام (total_possible) بناءً على أسئلة الطالب الفعلية
     const totalByAttempt: Record<string, number> = {}
     
     if (attemptIds.length > 0) {
-      // 1. جلب أسئلة الطالب (للنظام العشوائي)
       const { data: atqRes } = await supabase.from('attempt_questions').select('attempt_id, question_id').in('attempt_id', attemptIds)
-      // 2. جلب إجابات الطالب (للنظام القديم)
       const { data: ansRes } = await supabase.from('answers').select('attempt_id, question_id').in('attempt_id', attemptIds)
 
       const attemptQMap: Record<string, Set<string>> = {}
@@ -170,7 +168,6 @@ export default function GradesTab() {
         for (const q of (qRes ?? []) as any[]) scoreMap[q.id] = q.score
       }
 
-      // حساب مقام احتياطي للطلاب الذين لم يجيبوا (مسودة)
       const totalByActivityFallback: Record<string, number> = {}
       if (activityIds.length > 0) {
         const aqRes = await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', activityIds)
@@ -312,7 +309,7 @@ export default function GradesTab() {
 
     setGradingRow(row); setGradingAq(aqList); setGradingQuestions(qs)
     setGradingOptions(om); setGradingKeys(km); setGradingAnswers(am); setGrades(initialGrades)
-    setOpen({ mcq: true, tf: true, essay_smart: true, essay_reasoning: true })
+    setOpen({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   }
 
   function prepareSaveGrades() {
@@ -394,6 +391,36 @@ export default function GradesTab() {
       : 'تمت إعادة التعيين بنجاح.')
     setGradingRow(null); setGradingAnswers({}); setGrades({})
     await load()
+  }
+
+  // ⬇️ دالة نسخ المقالي للتصحيح بالذكاء الاصطناعي
+  function copyForAI() {
+    if (!gradingRow) return
+    const essays = gradingQuestions.filter(q => q.type.startsWith('essay'))
+    if (essays.length === 0) {
+      setError('لا توجد أسئلة مقالية في هذه المحاولة لنسخها.')
+      return
+    }
+
+    let text = `أنت مصحح لمادة فقه المعاملات. يرجى تصحيح إجابات الطالب المقالية بناءً على معايير التصحيح والإجابة النموذجية.\n\n`
+    
+    essays.forEach((q, idx) => {
+      const ans = gradingAnswers[q.id]?.text_answer || '— لم يجب —'
+      const k = gradingKeys[q.id]
+      const score = grades[q.id] || 'غير محددة'
+
+      text += `--- السؤال ${idx + 1} (من ${q.score} درجات) ---\n`
+      text += `السؤال: ${q.text}\n`
+      if (k?.model_answer) text += `الإجابة النموذجية: ${k.model_answer}\n`
+      if (k?.grading_criteria) text += `معايير التصحيح: ${k.grading_criteria}\n`
+      text += `إجابة الطالب: ${ans}\n`
+      text += `الدرجة الحالية المعطاة: ${score}\n\n`
+    })
+
+    text += `المطلوب: قم بتقييم إجابات الطالب واقتراح الدرجة المناسبة لكل سؤال مع التبرير.`
+
+    navigator.clipboard.writeText(text)
+    setSuccess('📋 تم نسخ الأسئلة المقالية وإجاباتها مع البرومبت. الصقها الآن في Claude أو ChatGPT!')
   }
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
@@ -605,7 +632,17 @@ export default function GradesTab() {
                 {' '}— {gradingRow.activity_title} — الرقم {gradingRow.student_no ?? '—'}
               </p>
             </div>
-            <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
+            <div className="flex flex-wrap gap-2">
+              {/* ⬇️ زر نسخ للتصحيح بالذكاء الاصطناعي */}
+              <button 
+                onClick={copyForAI} 
+                className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-accent/90"
+                title="نسخ الأسئلة المقالية وإجاباتها مع برومبت جاهز"
+              >
+                📋 نسخ المقالي (للذكاء الاصطناعي)
+              </button>
+              <button className={btnOutline} onClick={() => { setGradingRow(null); setGradingAnswers({}); setGrades({}) }}>إغلاق</button>
+            </div>
           </div>
 
           <div className="space-y-4">
