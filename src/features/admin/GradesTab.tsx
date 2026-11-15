@@ -88,10 +88,8 @@ export default function GradesTab() {
   const [query, setQuery] = useState('')
   const [selectedWeek, setSelectedWeek] = useState<WeekFilter>('all')
   
-  // حالة لضبط الأسبوع الافتراضي مرة واحدة فقط
   const [hasInitializedWeek, setHasInitializedWeek] = useState(false)
 
-  // grading panel
   const [gradingRow, setGradingRow] = useState<AttemptRow | null>(null)
   const [gradingQuestions, setGradingQuestions] = useState<Question[]>([])
   const [gradingOptions, setGradingOptions] = useState<Record<string, Option[]>>({})
@@ -99,11 +97,9 @@ export default function GradesTab() {
   const [gradingAq, setGradingAq] = useState<AQ[]>([])
   const [gradingAnswers, setGradingAnswers] = useState<Record<string, AnswerRow>>({})
   const [grades, setGrades] = useState<Record<string, string>>({})
-  // تم جعل الأقسام مفتوحة افتراضياً (true)
   const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: true, tf: true, essay_smart: true, essay_reasoning: true })
   const [busy, setBusy] = useState(false)
 
-  // ⬇️ حالة نافذة التأكيد
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [saveSummary, setSaveSummary] = useState<{ smartScore: number, smartMax: number, reasoningScore: number, reasoningMax: number, missingGrades: number } | null>(null)
 
@@ -127,6 +123,7 @@ export default function GradesTab() {
 
     const studentIds = Array.from(new Set([...attempts.map((a) => a.student_id), ...reqs.map((r) => r.student_id)]))
     const activityIds = Array.from(new Set([...attempts.map((a) => a.activity_id), ...reqs.map((r) => r.activity_id)]))
+    const attemptIds = attempts.map(a => a.id)
 
     const nameMap: Record<string, { name: string; no: string | null }> = {}
     if (studentIds.length > 0) {
@@ -136,12 +133,12 @@ export default function GradesTab() {
       }
     }
 
-    const actMap: Record<string, { title: string; week_id: string }> = {}
+    const actMap: Record<string, { title: string; week_id: string; randomize_questions: boolean }> = {}
     const weekIds = new Set<string>()
     if (activityIds.length > 0) {
-      const ac = await supabase.from('activities').select('id,title,week_id').in('id', activityIds)
-      for (const a of (ac.data ?? []) as { id: string; title: string; week_id: string }[]) {
-        actMap[a.id] = { title: a.title, week_id: a.week_id }
+      const ac = await supabase.from('activities').select('id,title,week_id,randomize_questions').in('id', activityIds)
+      for (const a of (ac.data ?? []) as { id: string; title: string; week_id: string; randomize_questions: boolean }[]) {
+        actMap[a.id] = { title: a.title, week_id: a.week_id, randomize_questions: a.randomize_questions }
         weekIds.add(a.week_id)
       }
     }
@@ -152,17 +149,54 @@ export default function GradesTab() {
       for (const w of (wRes2.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
     }
 
-    const totalByActivity: Record<string, number> = {}
-    if (activityIds.length > 0) {
-      const aqRes = await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', activityIds)
-      const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
-      const qRes = qIds.length > 0
-        ? await supabase.from('questions').select('id,score').in('id', qIds)
-        : { data: [] as { id: string; score: number }[], error: null }
-      const scoreMap: Record<string, number> = {}
-      for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
-      for (const link of (aqRes.data ?? []) as { activity_id: string; question_id: string }[]) {
-        totalByActivity[link.activity_id] = (totalByActivity[link.activity_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
+    // ⬇️ الحساب الجديد: حساب المقام (total_possible) بناءً على أسئلة الطالب الفعلية
+    const totalByAttempt: Record<string, number> = {}
+    
+    if (attemptIds.length > 0) {
+      // 1. جلب أسئلة الطالب (للنظام العشوائي)
+      const { data: atqRes } = await supabase.from('attempt_questions').select('attempt_id, question_id').in('attempt_id', attemptIds)
+      // 2. جلب إجابات الطالب (للنظام القديم)
+      const { data: ansRes } = await supabase.from('answers').select('attempt_id, question_id').in('attempt_id', attemptIds)
+
+      const attemptQMap: Record<string, Set<string>> = {}
+      for (const r of (atqRes ?? []) as any[]) { (attemptQMap[r.attempt_id] ??= new Set()).add(r.question_id) }
+      for (const r of (ansRes ?? []) as any[]) { (attemptQMap[r.attempt_id] ??= new Set()).add(r.question_id) }
+
+      const allQIds = Array.from(new Set(Object.values(attemptQMap).flatMap(s => Array.from(s))))
+      
+      let scoreMap: Record<string, number> = {}
+      if (allQIds.length > 0) {
+        const { data: qRes } = await supabase.from('questions').select('id,score').in('id', allQIds)
+        for (const q of (qRes ?? []) as any[]) scoreMap[q.id] = q.score
+      }
+
+      // حساب مقام احتياطي للطلاب الذين لم يجيبوا (مسودة)
+      const totalByActivityFallback: Record<string, number> = {}
+      if (activityIds.length > 0) {
+        const aqRes = await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', activityIds)
+        const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
+        const qRes = qIds.length > 0 ? await supabase.from('questions').select('id,score').in('id', qIds) : { data: [], error: null }
+        const scoreMap2: Record<string, number> = {}
+        for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap2[q.id] = q.score
+        for (const link of (aqRes.data ?? []) as { activity_id: string; question_id: string }[]) {
+          totalByActivityFallback[link.activity_id] = (totalByActivityFallback[link.activity_id] ?? 0) + (scoreMap2[link.question_id] ?? 0)
+        }
+      }
+
+      for (const a of attempts) {
+        const qIdsForAttempt = attemptQMap[a.id]
+        if (qIdsForAttempt && qIdsForAttempt.size > 0) {
+          let sum = 0
+          for (const qid of Array.from(qIdsForAttempt)) sum += (scoreMap[qid] ?? 0)
+          totalByAttempt[a.id] = sum
+        } else {
+          const act = actMap[a.activity_id]
+          if (act && act.randomize_questions) {
+            totalByAttempt[a.id] = 60
+          } else {
+            totalByAttempt[a.id] = totalByActivityFallback[a.activity_id] ?? 0
+          }
+        }
       }
     }
 
@@ -175,7 +209,7 @@ export default function GradesTab() {
         activity_title: act?.title ?? '—',
         week_number: act ? (weekMap[act.week_id] ?? 0) : 0,
         auto_score: a.auto_score, manual_score: a.manual_score,
-        total_possible: totalByActivity[a.activity_id] ?? 0,
+        total_possible: totalByAttempt[a.id] ?? 0,
         status: a.status, submitted_at: a.submitted_at,
       }
     })
@@ -198,7 +232,6 @@ export default function GradesTab() {
 
   useEffect(() => { void load() }, [load])
 
-  // ⬇️ ضبط الأسبوع الافتراضي إلى آخر أسبوع مرة واحدة فقط عند التحميل
   useEffect(() => {
     if (!hasInitializedWeek && weeks.length > 0 && rows.length > 0) {
       const maxWeek = Math.max(...weeks.map(w => w.number))
@@ -229,12 +262,10 @@ export default function GradesTab() {
     await load()
   }
 
-  // ⬇️ دالة التصحيح المطورة: تجلب الأسئلة بناءً على إجابات الطالب لضمان ظهورها دائماً
   async function openGrading(row: AttemptRow) {
     if (!supabase) return
     setError(null); setSuccess(null); setBusy(true)
 
-    // 1. جلب إجابات الطالب أولاً
     const { data: anData, error: anErr } = await supabase.from('answers')
       .select('id,question_id,option_id,text_answer,is_correct,awarded_score')
       .eq('attempt_id', row.id)
@@ -247,7 +278,6 @@ export default function GradesTab() {
 
     const qIds = Array.from(new Set(anData.map(a => a.question_id)))
 
-    // 2. جلب بيانات الأسئلة المرتبطة بهذه الإجابات
     const [qRes, oRes, kRes, aqRes] = await Promise.all([
       supabase.from('questions').select('id,type,text,score').in('id', qIds),
       supabase.from('question_options').select('id,question_id,label,text,position').in('question_id', qIds).order('position'),
@@ -257,7 +287,7 @@ export default function GradesTab() {
 
     setBusy(false)
     if (qRes.error || oRes.error || kRes.error || aqRes.error) {
-      setError('تعذّر تحميل بيانات التصحيح: ' + (qRes.error?.message || oRes.error?.message || kRes.error?.message || aqRes.error?.message))
+      setError('تعذّر تحميل بيانات التصحيح.')
       return
     }
 
@@ -270,7 +300,6 @@ export default function GradesTab() {
     const am: Record<string, AnswerRow> = {}
     for (const a of anData as AnswerRow[]) am[a.question_id] = a
 
-    // 3. ترتيب الأسئلة
     let aqList = (aqRes.data ?? []) as AQ[]
     if (aqList.length === 0) {
       aqList = qs.map((q, i) => ({ activity_id: row.activity_id, question_id: q.id, position: i + 1 }))
