@@ -69,7 +69,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
-  // حالة التصدير
   const [showExport, setShowExport] = useState(false)
   const [exportData, setExportData] = useState<any[]>([])
 
@@ -358,21 +357,15 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     await load()
   }
 
-  // ⬇️ دالة التصدير المعدلة (تستخدم الدالة الآمنة get_my_attempt_keys)
+  // ⬇️ دالة التصدير المعدلة (تسمح بالعرض المتكرر دون عقوبات إضافية)
   async function handleExport() {
     if (!supabase || !running) return
     const at = attempts[running.id]
-    if (at?.exported_at) {
-      alert('لقد قمت بتصدير هذا الاختبار سابقاً، لم يعد بإمكانك إعادة الاختبار.')
-      return
-    }
-
-    const confirmMsg = '⚠️ تنبيه خطير جداً:\n\nإذا قمت بتصدير الأسئلة الآن، ستحمل الورقة اسمك ورقمك (كعلامة مائية)، ولن تتمكن من طلب إعادة الاختبار نهائياً.\n\nهل أنت متأكد من رغبتك في التصدير؟'
-    if (!window.confirm(confirmMsg)) return
+    if (!at) return
 
     setBusy(true)
     
-    // 1. جلب مفاتيح الإجابات باستخدام الدالة الآمنة الجديدة
+    // 1. جلب مفاتيح الإجابات باستخدام الدالة الآمنة
     const { data: kData, error: kErr } = await supabase.rpc('get_my_attempt_keys', { p_attempt_id: at.id })
     if (kErr) {
       setError('تعذّر جلب الإجابات النموذجية: ' + kErr.message)
@@ -382,13 +375,23 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     const keysMap: Record<string, any> = {}
     for (const k of (kData || [])) keysMap[k.question_id] = k
 
-    // 2. تسجيل التصدير في قاعدة البيانات
-    const { error } = await supabase.rpc('mark_attempt_exported', { p_attempt_id: at.id })
-    
-    if (error) {
-      setError('تعذّر تسجيل التصدير: ' + error.message)
-      setBusy(false)
-      return
+    // 2. إذا لم يصدر سابقاً، نسجله في قاعدة البيانات ونظهر التحذير
+    if (!at.exported_at) {
+      const confirmMsg = '⚠️ تنبيه خطير جداً:\n\nإذا قمت بتصدير الأسئلة الآن، ستحمل الورقة اسمك ورقمك (كعلامة مائية)، ولن تتمكن من طلب إعادة الاختبار نهائياً.\n\nهل أنت متأكد من رغبتك في التصدير؟'
+      if (!window.confirm(confirmMsg)) { setBusy(false); return }
+
+      const { error } = await supabase.rpc('mark_attempt_exported', { p_attempt_id: at.id })
+      if (error) {
+        setError('تعذّر تسجيل التصدير: ' + error.message)
+        setBusy(false)
+        return
+      }
+
+      // تحديث المحاولات محلياً
+      setAttempts(prev => ({ 
+        ...prev, 
+        [running.id]: { ...prev[running.id], exported_at: new Date().toISOString() } 
+      }))
     }
 
     // 3. تجهيز البيانات للطباعة
@@ -417,12 +420,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
     setExportData(preparedData)
     setShowExport(true)
-    
-    // 4. تحديث المحاولات محلياً
-    setAttempts(prev => ({ 
-      ...prev, 
-      [running.id]: { ...prev[running.id], exported_at: new Date().toISOString() } 
-    }))
     
     setBusy(false)
   }
@@ -749,7 +746,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
               {hasExported ? (
                 <div className="mt-3 rounded-lg bg-error-soft px-3 py-2 text-sm font-semibold text-error ring-1 ring-error/20 flex flex-wrap justify-between items-center gap-2">
                   <span>⚠️ لقد قمت بتصدير الأسئلة سابقاً (لا يمكن طلب إعادة).</span>
-                  <button className={btnWarning} onClick={handleExport}>🖨️ إعادة عرض الملف</button>
+                  <button className={btnWarning} onClick={handleExport} disabled={busy}>🖨️ إعادة عرض الملف</button>
                 </div>
               ) : (
                 <div className="mt-3 flex flex-wrap items-center gap-3">
