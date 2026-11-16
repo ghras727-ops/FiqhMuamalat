@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { toJpeg } from 'html-to-image'
+import { toPng } from 'html-to-image'
 import { jsPDF } from 'jspdf'
 
 interface Question {
@@ -21,24 +21,35 @@ interface Props {
 
 export default function StudentExportView({ studentName, studentNo, activityTitle, questions, onClose }: Props) {
   const printRef = useRef<HTMLDivElement>(null)
-  const [downloading, setDownloading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<'loading' | 'error'>('loading')
+  const [errorMsg, setErrorMsg] = useState('')
 
-  // دالة توليد وتنزيل الـ PDF مباشرة
-  const downloadPdf = async () => {
+  const generatePdf = async () => {
     if (!printRef.current) return
-    setDownloading(true)
-    setError(null)
+    setStatus('loading')
 
     try {
-      // 1. التقاط صورة عالية الدقة للورقة
-      const imgData = await toJpeg(printRef.current, {
-        pixelRatio: 3,
-        quality: 1,
+      // 1. الانتظار حتى يتم تحميل الخطوط والصور بالكامل
+      await document.fonts.ready
+      await new Promise(r => setTimeout(r, 800)) // مهلة إضافية للرسم
+
+      // 2. التقاط الصورة بدقة عالية (PNG)
+      const imgData = await toPng(printRef.current, {
+        pixelRatio: 2, // دقة ممتازة وحجم ملف معقول
         backgroundColor: '#ffffff',
+        cacheBust: true,
+        style: {
+          transform: 'scale(1)', // لضمان عدم وجود تصغير
+          transformOrigin: 'top left'
+        }
       })
 
-      // 2. إنشاء مستند A4
+      // حماية: التأكد من أن الصورة ليست فارغة (حجمها معقول)
+      if (!imgData || imgData.length < 5000) {
+        throw new Error('فشل التقاط الصفحة (الصورة فارغة).')
+      }
+
+      // 3. إنشاء ملف PDF
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -47,65 +58,61 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
 
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = pdf.internal.pageSize.getHeight()
+
       const imgProps = pdf.getImageProperties(imgData)
       const imgHeight = (imgProps.height * pdfWidth) / imgProps.width
 
       let heightLeft = imgHeight
       let position = 0
 
-      // 3. إضافة الصورة للصفحة الأولى
-      pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight)
+      // الصفحة الأولى
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight)
       heightLeft -= pdfHeight
 
-      // 4. إذا كانت الورقة أطول من صفحة واحدة، نضيف صفحات جديدة
+      // الصفحات التالية (إذا كان المحتوى طويلاً)
       while (heightLeft > 0) {
         position = heightLeft - imgHeight
         pdf.addPage()
-        pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight)
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight)
         heightLeft -= pdfHeight
       }
 
-      // 5. حفظ الملف مباشرة
+      // 4. حفظ الملف وتنزيله مباشرة
       const safeTitle = activityTitle.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_')
       pdf.save(`اختبار_${studentName}_${safeTitle}.pdf`)
       
-      // إغلاق النافذة بعد التنزيل
+      // إغلاق الشاشة بعد نجاح التنزيل
       setTimeout(() => onClose(), 1000)
 
     } catch (err: any) {
-      console.error('PDF Generation Error:', err)
-      setError('حدث خطأ أثناء إنشاء ملف الـ PDF. يرجى المحاولة مرة أخرى.')
-      setDownloading(false)
+      console.error(err)
+      setErrorMsg(err.message || 'حدث خطأ غير متوقع أثناء إنشاء الملف.')
+      setStatus('error')
     }
   }
 
-  // بدء التنزيل تلقائياً بمجرد فتح الشاشة
   useEffect(() => {
     document.body.style.overflow = 'hidden'
-    
-    // تأخير بسيط للتأكد من تحميل الخطوط والصور قبل الالتقاط
-    const timer = setTimeout(() => {
-      void downloadPdf()
-    }, 800)
-
-    return () => { 
-      document.body.style.overflow = '' 
-      clearTimeout(timer)
-    }
+    // بدء التوليد فوراً عند فتح الشاشة
+    void generatePdf()
+    return () => { document.body.style.overflow = '' }
   }, [])
 
-  // هندسة الطباعة
+  // تنسيقات الورقة (بالبكسل لضمان التقاطها بشكل صحيح)
   const printStyles = {
     container: {
-      width: '210mm',
-      minHeight: '297mm',
+      width: '794px', // عرض A4 بالبكسل
+      minHeight: '1123px', // ارتفاع A4 بالبكسل
       background: 'white',
-      margin: '0 auto',
-      padding: '15mm 15mm 20mm 15mm',
-      position: 'relative' as const,
+      padding: '50px 60px',
+      position: 'absolute' as const,
+      top: 0,
+      left: 0,
+      zIndex: 1, // فوق الخلفية، لكن أسفل شاشة التحميل
       fontFamily: '"Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
       boxSizing: 'border-box' as const,
       color: '#123A2E',
+      direction: 'rtl' as const,
     },
     watermarkContainer: {
       position: 'absolute' as const,
@@ -132,57 +139,22 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
       zIndex: 10,
     },
     questionBlock: {
-      pageBreakInside: 'avoid' as const,
-      breakInside: 'avoid' as const,
       marginBottom: '20px',
       padding: '15px',
       border: '1px solid #D6E4EC',
       borderRadius: '8px',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)', // شفافية خفيفة لتظهر العلامة المائية
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
     }
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4">
+    <div className="fixed inset-0 z-[100] overflow-hidden bg-white">
       
-      {/* شاشة التحميل (تغطي الشاشة أثناء إنشاء الملف) */}
-      {downloading && (
-        <div className="absolute inset-0 z-[110] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="rounded-2xl bg-white p-8 text-center shadow-2xl">
-            <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-            <h3 className="text-xl font-bold text-primary">جارٍ توليد ملف PDF...</h3>
-            <p className="mt-2 text-sm text-ink-muted">يرجى الانتظار، سيبدأ التنزيل تلقائياً.</p>
-            
-            {error && (
-              <div className="mt-4">
-                <p className="text-sm font-semibold text-error">{error}</p>
-                <button 
-                  className="mt-4 rounded-xl bg-primary px-6 py-2 font-bold text-white shadow-md hover:bg-primary-hover" 
-                  onClick={() => void downloadPdf()}
-                >
-                  إعادة المحاولة
-                </button>
-                <button 
-                  className="mt-4 ms-2 rounded-xl border border-error bg-white px-6 py-2 font-bold text-error hover:bg-error-soft" 
-                  onClick={onClose}
-                >
-                  إغلاق
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ورقة A4 (تظل مخفية خلف شاشة التحميل، ولا تُرى إلا إذا فشل التحميل) */}
-      <div 
-        ref={printRef} 
-        className="shadow-2xl" 
-        style={{ ...printStyles.container, position: 'absolute', top: '-9999px', left: '-9999px' }} // نخفيها خارج الشاشة لنلتقطها فقط
-      >
+      {/* ⬇️ الورقة (موجودة في الخلفية ليتم التقاطها) */}
+      <div ref={printRef} style={printStyles.container}>
         {/* العلامة المائية */}
         <div style={printStyles.watermarkContainer}>
-          {Array.from({ length: 30 }).map((_, i) => (
+          {Array.from({ length: 40 }).map((_, i) => (
             <div key={i} style={printStyles.watermarkText}>
               {studentName} - {studentNo}
             </div>
@@ -228,6 +200,47 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
           <div style={{ marginTop: '30px', paddingTop: '10px', borderTop: '1px solid #D6E4EC', textAlign: 'center', fontSize: '12px', color: '#4B5D63' }}>
             هذا المستند تم تصديره للاستخدام الشخصي فقط. يمنع تداوله أو مشاركته.
           </div>
+        </div>
+      </div>
+
+      {/* ⬇️ شاشة التحميل (تغطي الورقة وتخفيها عن المستخدم أثناء التوليد) */}
+      <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
+        <div className="rounded-3xl bg-white p-10 text-center shadow-2xl max-w-md w-full mx-4">
+          
+          {status === 'loading' && (
+            <>
+              <div className="mx-auto mb-6 h-16 w-16 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+              <h3 className="text-2xl font-bold text-primary mb-2">جارٍ تجهيز ملف الـ PDF</h3>
+              <p className="text-ink-muted">يتم الآن تصدير الأسئلة والإجابات، سيبدأ التنزيل تلقائياً خلال لحظات...</p>
+            </>
+          )}
+
+          {status === 'error' && (
+            <>
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-error-soft text-error">
+                <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-error mb-2">فشل إنشاء الملف</h3>
+              <p className="text-sm text-ink-muted mb-6">{errorMsg}</p>
+              <div className="flex gap-2 justify-center">
+                <button 
+                  className="rounded-xl bg-primary px-6 py-2.5 font-bold text-white shadow-md hover:bg-primary-hover transition" 
+                  onClick={() => void generatePdf()}
+                >
+                  إعادة المحاولة
+                </button>
+                <button 
+                  className="rounded-xl border border-light-blue bg-white px-6 py-2.5 font-bold text-ink hover:bg-bg transition" 
+                  onClick={onClose}
+                >
+                  إغلاق
+                </button>
+              </div>
+            </>
+          )}
+
         </div>
       </div>
     </div>
