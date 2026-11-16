@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import StudentExportView from './StudentExportView'
-import { useAuth } from '../../app/auth-context' // ⬅️ تم إضافة هذا السطر
+import { useAuth } from '../../app/auth-context'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover active:bg-primary-active focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60'
@@ -37,7 +37,7 @@ const TYPE_STYLE: Record<QType, TypeStyle> = {
 }
 
 export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () => void } = {}) {
-  const { profile } = useAuth() // ⬅️ تم إضافة هذا السطر لجلب بيانات الطالب
+  const { profile } = useAuth()
 
   const [activities, setActivities] = useState<Activity[]>([])
   const [weeks, setWeeks] = useState<Week[]>([])
@@ -69,7 +69,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
-  // ⬇️ حالة التصدير
+  // حالة التصدير
   const [showExport, setShowExport] = useState(false)
   const [exportData, setExportData] = useState<any[]>([])
 
@@ -358,7 +358,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     await load()
   }
 
-  // ⬇️ دالة التصدير
+  // ⬇️ دالة التصدير المعدلة (تستخدم الدالة الآمنة get_my_attempt_keys)
   async function handleExport() {
     if (!supabase || !running) return
     const at = attempts[running.id]
@@ -372,9 +372,13 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
     setBusy(true)
     
-    // 1. جلب مفاتيح الإجابات للتصدير
-    const qIds = questions.map(q => q.id)
-    const { data: kData } = await supabase.from('question_keys').select('*').in('question_id', qIds)
+    // 1. جلب مفاتيح الإجابات باستخدام الدالة الآمنة الجديدة
+    const { data: kData, error: kErr } = await supabase.rpc('get_my_attempt_keys', { p_attempt_id: at.id })
+    if (kErr) {
+      setError('تعذّر جلب الإجابات النموذجية: ' + kErr.message)
+      setBusy(false)
+      return
+    }
     const keysMap: Record<string, any> = {}
     for (const k of (kData || [])) keysMap[k.question_id] = k
 
@@ -840,7 +844,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
           )
         })()}
 
-        {/* ⬇️ نافذة التصدير */}
+        {/* نافذة التصدير */}
         {showExport && running && (
           <StudentExportView
             studentName={profile?.full_name || 'طالب'}
