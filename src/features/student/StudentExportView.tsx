@@ -1,4 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { toJpeg } from 'html-to-image'
+import { jsPDF } from 'jspdf'
 
 interface Question {
   id: string
@@ -18,12 +20,81 @@ interface Props {
 }
 
 export default function StudentExportView({ studentName, studentNo, activityTitle, questions, onClose }: Props) {
+  const printRef = useRef<HTMLDivElement>(null)
+  const [downloading, setDownloading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // دالة توليد وتنزيل الـ PDF مباشرة
+  const downloadPdf = async () => {
+    if (!printRef.current) return
+    setDownloading(true)
+    setError(null)
+
+    try {
+      // 1. التقاط صورة عالية الدقة للورقة
+      const imgData = await toJpeg(printRef.current, {
+        pixelRatio: 3,
+        quality: 1,
+        backgroundColor: '#ffffff',
+      })
+
+      // 2. إنشاء مستند A4
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      })
+
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+      const imgProps = pdf.getImageProperties(imgData)
+      const imgHeight = (imgProps.height * pdfWidth) / imgProps.width
+
+      let heightLeft = imgHeight
+      let position = 0
+
+      // 3. إضافة الصورة للصفحة الأولى
+      pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight)
+      heightLeft -= pdfHeight
+
+      // 4. إذا كانت الورقة أطول من صفحة واحدة، نضيف صفحات جديدة
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight)
+        heightLeft -= pdfHeight
+      }
+
+      // 5. حفظ الملف مباشرة
+      const safeTitle = activityTitle.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_')
+      pdf.save(`اختبار_${studentName}_${safeTitle}.pdf`)
+      
+      // إغلاق النافذة بعد التنزيل
+      setTimeout(() => onClose(), 1000)
+
+    } catch (err: any) {
+      console.error('PDF Generation Error:', err)
+      setError('حدث خطأ أثناء إنشاء ملف الـ PDF. يرجى المحاولة مرة أخرى.')
+      setDownloading(false)
+    }
+  }
+
+  // بدء التنزيل تلقائياً بمجرد فتح الشاشة
   useEffect(() => {
     document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = '' }
+    
+    // تأخير بسيط للتأكد من تحميل الخطوط والصور قبل الالتقاط
+    const timer = setTimeout(() => {
+      void downloadPdf()
+    }, 800)
+
+    return () => { 
+      document.body.style.overflow = '' 
+      clearTimeout(timer)
+    }
   }, [])
 
-  // هندسة الطباعة المخصصة
+  // هندسة الطباعة
   const printStyles = {
     container: {
       width: '210mm',
@@ -72,53 +143,44 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
   }
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/80 p-4 print:bg-white print:p-0 print:static print:overflow-visible">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4">
       
-      {/* شريط التحكم العلوي (يختفي عند الطباعة) */}
-      <div className="no-print sticky top-0 z-50 mb-4 mx-auto max-w-[900px] flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white p-4 shadow-xl">
-        <div>
-          <h2 className="text-xl font-bold text-error">⚠️ معاينة الطباعة</h2>
-          <p className="text-sm text-ink-muted">تأكد من اختيار مقاس A4 وإلغاء "الترويسة والتذييل" في إعدادات المتصفح.</p>
+      {/* شاشة التحميل (تغطي الشاشة أثناء إنشاء الملف) */}
+      {downloading && (
+        <div className="absolute inset-0 z-[110] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="rounded-2xl bg-white p-8 text-center shadow-2xl">
+            <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            <h3 className="text-xl font-bold text-primary">جارٍ توليد ملف PDF...</h3>
+            <p className="mt-2 text-sm text-ink-muted">يرجى الانتظار، سيبدأ التنزيل تلقائياً.</p>
+            
+            {error && (
+              <div className="mt-4">
+                <p className="text-sm font-semibold text-error">{error}</p>
+                <button 
+                  className="mt-4 rounded-xl bg-primary px-6 py-2 font-bold text-white shadow-md hover:bg-primary-hover" 
+                  onClick={() => void downloadPdf()}
+                >
+                  إعادة المحاولة
+                </button>
+                <button 
+                  className="mt-4 ms-2 rounded-xl border border-error bg-white px-6 py-2 font-bold text-error hover:bg-error-soft" 
+                  onClick={onClose}
+                >
+                  إغلاق
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button 
-            className="rounded-xl bg-primary px-6 py-2.5 font-bold text-white shadow-md hover:bg-primary-hover" 
-            onClick={() => window.print()}
-          >
-            🖨️ طباعة / حفظ PDF
-          </button>
-          <button 
-            className="rounded-xl border border-error bg-white px-6 py-2.5 font-bold text-error hover:bg-error-soft" 
-            onClick={onClose}
-          >
-            إغلاق
-          </button>
-        </div>
-      </div>
+      )}
 
-      {/* ورقة A4 */}
-      <div className="print-area mx-auto shadow-2xl print:shadow-none" style={printStyles.container}>
-        
-        {/* قواعد CSS خاصة بالطباعة (تطبق فقط عند الطبع) */}
-        <style dangerouslySetInnerHTML={{__html: `
-          @page { size: A4 portrait; margin: 0; }
-          @media print {
-            html, body { 
-              margin: 0 !important; 
-              padding: 0 !important; 
-              background: white !important; 
-              -webkit-print-color-adjust: exact; 
-              print-color-adjust: exact;
-            }
-            .print-area {
-              box-shadow: none !important;
-              border: none !important;
-              margin: 0 !important;
-            }
-          }
-        `}} />
-
-        {/* ⬇️ العلامة المائية (مغطاة بـ overflow) */}
+      {/* ورقة A4 (تظل مخفية خلف شاشة التحميل، ولا تُرى إلا إذا فشل التحميل) */}
+      <div 
+        ref={printRef} 
+        className="shadow-2xl" 
+        style={{ ...printStyles.container, position: 'absolute', top: '-9999px', left: '-9999px' }} // نخفيها خارج الشاشة لنلتقطها فقط
+      >
+        {/* العلامة المائية */}
         <div style={printStyles.watermarkContainer}>
           {Array.from({ length: 30 }).map((_, i) => (
             <div key={i} style={printStyles.watermarkText}>
@@ -127,10 +189,8 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
           ))}
         </div>
 
-        {/* ⬇️ محتوى الورقة (فوق العلامة المائية) */}
+        {/* محتوى الورقة */}
         <div style={printStyles.content}>
-          
-          {/* الترويسة */}
           <header style={{ borderBottom: '2px solid #0B6CB3', paddingBottom: '10px', marginBottom: '20px', textAlign: 'center' }}>
             <h1 style={{ fontSize: '22px', fontWeight: 800, color: '#0B6CB3', margin: 0 }}>جامعة العلوم والتكنولوجيا</h1>
             <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#123A2E', margin: '4px 0' }}>مقرر فقه المعاملات (1)</h2>
@@ -139,7 +199,6 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
             </div>
           </header>
 
-          {/* الأسئلة */}
           <div>
             {questions.map((q, index) => (
               <div key={q.id} style={printStyles.questionBlock}>
@@ -166,7 +225,6 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
             ))}
           </div>
 
-          {/* التذييل */}
           <div style={{ marginTop: '30px', paddingTop: '10px', borderTop: '1px solid #D6E4EC', textAlign: 'center', fontSize: '12px', color: '#4B5D63' }}>
             هذا المستند تم تصديره للاستخدام الشخصي فقط. يمنع تداوله أو مشاركته.
           </div>
