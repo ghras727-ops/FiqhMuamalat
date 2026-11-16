@@ -29,27 +29,20 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
     setStatus('loading')
 
     try {
-      // 1. الانتظار حتى يتم تحميل الخطوط والصور بالكامل
       await document.fonts.ready
-      await new Promise(r => setTimeout(r, 800)) // مهلة إضافية للرسم
+      await new Promise(r => setTimeout(r, 800))
 
-      // 2. التقاط الصورة بدقة عالية (PNG)
       const imgData = await toPng(printRef.current, {
-        pixelRatio: 2, // دقة ممتازة وحجم ملف معقول
+        pixelRatio: 2,
         backgroundColor: '#ffffff',
         cacheBust: true,
-        style: {
-          transform: 'scale(1)', // لضمان عدم وجود تصغير
-          transformOrigin: 'top left'
-        }
+        style: { transform: 'scale(1)', transformOrigin: 'top left' }
       })
 
-      // حماية: التأكد من أن الصورة ليست فارغة (حجمها معقول)
       if (!imgData || imgData.length < 5000) {
         throw new Error('فشل التقاط الصفحة (الصورة فارغة).')
       }
 
-      // 3. إنشاء ملف PDF
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -58,18 +51,15 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
 
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = pdf.internal.pageSize.getHeight()
-
       const imgProps = pdf.getImageProperties(imgData)
       const imgHeight = (imgProps.height * pdfWidth) / imgProps.width
 
       let heightLeft = imgHeight
       let position = 0
 
-      // الصفحة الأولى
       pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight)
       heightLeft -= pdfHeight
 
-      // الصفحات التالية (إذا كان المحتوى طويلاً)
       while (heightLeft > 0) {
         position = heightLeft - imgHeight
         pdf.addPage()
@@ -77,11 +67,9 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
         heightLeft -= pdfHeight
       }
 
-      // 4. حفظ الملف وتنزيله مباشرة
       const safeTitle = activityTitle.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_')
       pdf.save(`اختبار_${studentName}_${safeTitle}.pdf`)
       
-      // إغلاق الشاشة بعد نجاح التنزيل
       setTimeout(() => onClose(), 1000)
 
     } catch (err: any) {
@@ -93,22 +81,20 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
-    // بدء التوليد فوراً عند فتح الشاشة
     void generatePdf()
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  // تنسيقات الورقة (بالبكسل لضمان التقاطها بشكل صحيح)
   const printStyles = {
     container: {
-      width: '794px', // عرض A4 بالبكسل
-      minHeight: '1123px', // ارتفاع A4 بالبكسل
+      width: '794px', 
+      minHeight: '1123px', 
       background: 'white',
       padding: '50px 60px',
       position: 'absolute' as const,
       top: 0,
       left: 0,
-      zIndex: 1, // فوق الخلفية، لكن أسفل شاشة التحميل
+      zIndex: 1, 
       fontFamily: '"Cairo", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif',
       boxSizing: 'border-box' as const,
       color: '#123A2E',
@@ -150,7 +136,7 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
   return (
     <div className="fixed inset-0 z-[100] overflow-hidden bg-white">
       
-      {/* ⬇️ الورقة (موجودة في الخلفية ليتم التقاطها) */}
+      {/* الورقة التي سيتم التقاطها */}
       <div ref={printRef} style={printStyles.container}>
         {/* العلامة المائية */}
         <div style={printStyles.watermarkContainer}>
@@ -172,29 +158,60 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
           </header>
 
           <div>
-            {questions.map((q, index) => (
-              <div key={q.id} style={printStyles.questionBlock}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontWeight: 800, color: '#0B6CB3' }}>السؤال {index + 1}</span>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#4B5D63', backgroundColor: '#E6F2FA', padding: '2px 8px', borderRadius: '4px' }}>
-                    {q.score} درجات
-                  </span>
-                </div>
-                
-                <p style={{ fontSize: '16px', fontWeight: 700, margin: '0 0 12px 0', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                  {q.text}
-                </p>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ fontSize: '14px', padding: '8px 12px', backgroundColor: '#FBEAEC', color: '#D74050', borderRadius: '6px', border: '1px solid rgba(215,64,80,0.2)' }}>
-                    <b>إجابة الطالب: </b> <span style={{ whiteSpace: 'pre-wrap' }}>{q.studentAnswer || '— لم يجب —'}</span>
+            {questions.map((q, index) => {
+              // تحديد ما إذا كان السؤال مقالياً أم لا
+              const isEssay = q.type.startsWith('essay')
+              // مقارنة نص إجابة الطالب بالنص النموذجي (للأسئلة الموضوعية فقط)
+              const isCorrect = q.studentAnswer?.trim() === q.correctAnswer?.trim()
+
+              // إعدادات لون إجابة الطالب
+              let studentBg = '#FBEAEC' // أحمر افتراضي
+              let studentColor = '#D74050'
+              let studentBorder = '1px solid rgba(215,64,80,0.2)'
+
+              if (isEssay) {
+                // إذا كان مقالياً، نستخدم لوناً محايداً لأن المقارنة النصية لا تنطبق
+                studentBg = '#F7FBFD'
+                studentColor = '#123A2E'
+                studentBorder = '1px solid #D6E4EC'
+              } else if (isCorrect) {
+                // إذا كانت الإجابة صحيحة، نستخدم اللون الأخضر
+                studentBg = '#E8F5ED'
+                studentColor = '#198B48'
+                studentBorder = '1px solid rgba(25,139,72,0.2)'
+              }
+
+              return (
+                <div key={q.id} style={printStyles.questionBlock}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontWeight: 800, color: '#0B6CB3' }}>السؤال {index + 1}</span>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#4B5D63', backgroundColor: '#E6F2FA', padding: '2px 8px', borderRadius: '4px' }}>
+                      {q.score} درجات
+                    </span>
                   </div>
-                  <div style={{ fontSize: '14px', padding: '8px 12px', backgroundColor: '#E8F5ED', color: '#198B48', borderRadius: '6px', border: '1px solid rgba(25,139,72,0.2)' }}>
-                    <b>الإجابة النموذجية: </b> <span style={{ whiteSpace: 'pre-wrap' }}>{q.correctAnswer}</span>
+                  
+                  <p style={{ fontSize: '16px', fontWeight: 700, margin: '0 0 12px 0', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                    {q.text}
+                  </p>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* إجابة الطالب (ديناميكية اللون) */}
+                    <div style={{ fontSize: '14px', padding: '8px 12px', backgroundColor: studentBg, color: studentColor, borderRadius: '6px', border: studentBorder }}>
+                      <b>إجابة الطالب: </b> 
+                      <span style={{ whiteSpace: 'pre-wrap' }}>
+                        {q.studentAnswer || '— لم يجب —'}
+                        {!isEssay && isCorrect && ' ✓'}
+                        {!isEssay && !isCorrect && ' ✗'}
+                      </span>
+                    </div>
+                    {/* الإجابة النموذجية (دائماً خضراء) */}
+                    <div style={{ fontSize: '14px', padding: '8px 12px', backgroundColor: '#E8F5ED', color: '#198B48', borderRadius: '6px', border: '1px solid rgba(25,139,72,0.2)' }}>
+                      <b>الإجابة النموذجية: </b> <span style={{ whiteSpace: 'pre-wrap' }}>{q.correctAnswer}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           <div style={{ marginTop: '30px', paddingTop: '10px', borderTop: '1px solid #D6E4EC', textAlign: 'center', fontSize: '12px', color: '#4B5D63' }}>
@@ -203,7 +220,7 @@ export default function StudentExportView({ studentName, studentNo, activityTitl
         </div>
       </div>
 
-      {/* ⬇️ شاشة التحميل (تغطي الورقة وتخفيها عن المستخدم أثناء التوليد) */}
+      {/* شاشة التحميل */}
       <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
         <div className="rounded-3xl bg-white p-10 text-center shadow-2xl max-w-md w-full mx-4">
           
