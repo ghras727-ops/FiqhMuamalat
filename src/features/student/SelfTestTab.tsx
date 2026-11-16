@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import StudentExportView from './StudentExportView'
+import { useAuth } from '../../app/auth-context' // ⬅️ تم إضافة هذا السطر
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover active:bg-primary-active focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60'
@@ -16,7 +17,6 @@ interface Week { id: string; number: number; title: string }
 interface Question { id: string; type: QType; text: string; score: number }
 interface Option { id: string; question_id: string; label: string; text: string; position: number }
 interface AQ { activity_id: string; question_id: string; position: number }
-// ⬇️ إضافة exported_at
 interface Attempt { id: string; activity_id: string; auto_score: number; manual_score: number | null; status: string; submitted_at: string | null; exported_at?: string | null }
 interface AnswerRow { id: string; question_id: string; option_id: string | null; text_answer: string | null; is_correct: boolean | null; awarded_score: number | null }
 interface AnswerState { optionId?: string; text?: string; tf?: string }
@@ -37,6 +37,8 @@ const TYPE_STYLE: Record<QType, TypeStyle> = {
 }
 
 export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () => void } = {}) {
+  const { profile } = useAuth() // ⬅️ تم إضافة هذا السطر لجلب بيانات الطالب
+
   const [activities, setActivities] = useState<Activity[]>([])
   const [weeks, setWeeks] = useState<Week[]>([])
   const [attempts, setAttempts] = useState<Record<string, Attempt>>({})
@@ -76,7 +78,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     const [a, w, at, rq] = await Promise.all([
       supabase.from('activities').select('id,week_id,title,release'),
       supabase.from('weeks').select('id,number,title').order('number'),
-      // ⬇️ إضافة exported_at
       supabase.from('attempts').select('id,activity_id,auto_score,manual_score,status,submitted_at,exported_at'),
       supabase.from('retake_requests').select('id,activity_id,status,reason,created_at').order('created_at', { ascending: false }),
     ])
@@ -86,7 +87,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       const acts = (a.data ?? []) as Activity[]
       const wks = (w.data ?? []) as Week[]
 
-      // ترتيب الأنشطة تنازلياً حسب رقم الأسبوع (الأحدث أولاً)
       const sortedActs = acts.sort((act1, act2) => {
         const num1 = wks.find(x => x.id === act1.week_id)?.number || 0
         const num2 = wks.find(x => x.id === act2.week_id)?.number || 0
@@ -119,7 +119,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     await load()
     if (running && supabase) {
       const fresh = (await supabase.from('attempts')
-        // ⬇️ إضافة exported_at
         .select('id,activity_id,auto_score,manual_score,status,submitted_at,exported_at')
         .eq('activity_id', running.id)
         .maybeSingle()).data as Attempt | null
@@ -473,7 +472,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     const isReview = mode === 'review'
     const stats = countAnsweredByType()
     
-    // ⬇️ جلب حالة المحاولة الحالية
     const currentAttempt = attempts[running.id]
     const hasExported = !!currentAttempt?.exported_at
 
