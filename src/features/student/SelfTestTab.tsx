@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import StudentExportView from './StudentExportView'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-primary-hover active:bg-primary-active focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60'
 const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary-soft disabled:opacity-60'
 const btnDanger = 'rounded-xl border border-error bg-white px-3 py-1.5 text-sm font-semibold text-error transition hover:bg-error-soft disabled:opacity-60'
+const btnWarning = 'rounded-xl bg-warning px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-warning/90 disabled:opacity-60'
 const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-accent/40'
 
 type QType = 'mcq' | 'tf' | 'essay_smart' | 'essay_reasoning'
@@ -14,7 +16,8 @@ interface Week { id: string; number: number; title: string }
 interface Question { id: string; type: QType; text: string; score: number }
 interface Option { id: string; question_id: string; label: string; text: string; position: number }
 interface AQ { activity_id: string; question_id: string; position: number }
-interface Attempt { id: string; activity_id: string; auto_score: number; manual_score: number | null; status: string; submitted_at: string | null }
+// ⬇️ إضافة exported_at
+interface Attempt { id: string; activity_id: string; auto_score: number; manual_score: number | null; status: string; submitted_at: string | null; exported_at?: string | null }
 interface AnswerRow { id: string; question_id: string; option_id: string | null; text_answer: string | null; is_correct: boolean | null; awarded_score: number | null }
 interface AnswerState { optionId?: string; text?: string; tf?: string }
 interface RetakeRow { id: string; activity_id: string; status: string; reason: string; created_at: string }
@@ -25,13 +28,7 @@ const TYPE_LABEL: Record<QType, string> = {
 }
 const TYPE_ORDER: QType[] = ['mcq', 'tf', 'essay_smart', 'essay_reasoning']
 
-interface TypeStyle {
-  headerBg: string
-  headerText: string
-  badgeBg: string
-  barBg: string
-  emoji: string
-}
+interface TypeStyle { headerBg: string; headerText: string; badgeBg: string; barBg: string; emoji: string }
 const TYPE_STYLE: Record<QType, TypeStyle> = {
   mcq:             { headerBg: 'border-s-primary',   headerText: 'text-primary',     badgeBg: 'bg-primary-soft text-primary border-primary/30',     barBg: 'bg-primary',   emoji: '🟦' },
   tf:              { headerBg: 'border-s-secondary', headerText: 'text-secondary',   badgeBg: 'bg-secondary-soft text-secondary border-secondary/30', barBg: 'bg-secondary', emoji: '🟩' },
@@ -70,12 +67,17 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
 
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
+  // ⬇️ حالة التصدير
+  const [showExport, setShowExport] = useState(false)
+  const [exportData, setExportData] = useState<any[]>([])
+
   const load = useCallback(async () => {
     if (!supabase) return
     const [a, w, at, rq] = await Promise.all([
       supabase.from('activities').select('id,week_id,title,release'),
       supabase.from('weeks').select('id,number,title').order('number'),
-      supabase.from('attempts').select('id,activity_id,auto_score,manual_score,status,submitted_at'),
+      // ⬇️ إضافة exported_at
+      supabase.from('attempts').select('id,activity_id,auto_score,manual_score,status,submitted_at,exported_at'),
       supabase.from('retake_requests').select('id,activity_id,status,reason,created_at').order('created_at', { ascending: false }),
     ])
     if (a.error || w.error || at.error || rq.error) {
@@ -84,7 +86,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       const acts = (a.data ?? []) as Activity[]
       const wks = (w.data ?? []) as Week[]
 
-      // ⬇️ ترتيب الأنشطة تنازلياً حسب رقم الأسبوع (الأحدث أولاً)
+      // ترتيب الأنشطة تنازلياً حسب رقم الأسبوع (الأحدث أولاً)
       const sortedActs = acts.sort((act1, act2) => {
         const num1 = wks.find(x => x.id === act1.week_id)?.number || 0
         const num2 = wks.find(x => x.id === act2.week_id)?.number || 0
@@ -117,7 +119,8 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     await load()
     if (running && supabase) {
       const fresh = (await supabase.from('attempts')
-        .select('id,activity_id,auto_score,manual_score,status,submitted_at')
+        // ⬇️ إضافة exported_at
+        .select('id,activity_id,auto_score,manual_score,status,submitted_at,exported_at')
         .eq('activity_id', running.id)
         .maybeSingle()).data as Attempt | null
       if (fresh && fresh.status === 'graded' && mode === 'edit') {
@@ -140,14 +143,12 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
   async function loadExamData(activityId: string) {
     if (!supabase) return null
     
-    // ⬇️ استخدام دالة السحب الذكية الجديدة
     const { data, error } = await supabase.rpc('get_activity_questions', { p_activity_id: activityId })
     if (error || !data) {
       console.error(error)
       return null
     }
 
-    // تحويل البيانات القادمة من الدالة إلى الشكل الذي تفهمه الواجهة
     const rawQuestions = data as any[]
     const qs: Question[] = []
     const om: Record<string, Option[]> = {}
@@ -272,7 +273,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     if (rpcErr) {
       if (rpcErr.message.includes('already_graded_use_retake_request')) {
         setSaveStatus('error')
-        void refresh() // سيقوم بجلب الحالة الجديدة وتحويلها لمراجعة
+        void refresh()
         return
       }
       setSaveStatus('error')
@@ -286,7 +287,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     if (!running || mode !== 'edit') return
     const timer = setTimeout(() => { void saveDraft(answers) }, 800)
     return () => clearTimeout(timer)
-  }, [answers, running, mode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [answers, running, mode])
 
   async function submitFinal() {
     if (!supabase || !running) return
@@ -311,7 +312,7 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
       if (rpcErr.message.includes('already_graded_use_retake_request')) {
         setShowSubmitConfirm(false)
         setError('⚠️ لقد قام الأستاذ بتصحيح اختبارك بالفعل. سيتم الآن عرض إجاباتك ومراجعتها.')
-        await refresh() // تحديث فوري لعرض المراجعة
+        await refresh()
         return
       }
       setError(rpcErr.message); return 
@@ -349,13 +350,78 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     })
     setRetakeSubmitting(false)
     if (rpcErr) {
-      const msg = rpcErr.message.includes('already_requested')
-        ? 'طلبت الإعادة سابقًا — بانتظار الأستاذ.'
-        : rpcErr.message
+      let msg = rpcErr.message
+      if (msg.includes('already_requested')) msg = 'طلبت الإعادة سابقًا — بانتظار الأستاذ.'
+      if (msg.includes('cannot_retake_exported')) msg = 'لا يمكنك طلب الإعادة لأنك قمت بتصدير الأسئلة سابقاً.'
       setRetakeError(msg); return
     }
     setRetakeModal(null)
     await load()
+  }
+
+  // ⬇️ دالة التصدير
+  async function handleExport() {
+    if (!supabase || !running) return
+    const at = attempts[running.id]
+    if (at?.exported_at) {
+      alert('لقد قمت بتصدير هذا الاختبار سابقاً، لم يعد بإمكانك إعادة الاختبار.')
+      return
+    }
+
+    const confirmMsg = '⚠️ تنبيه خطير جداً:\n\nإذا قمت بتصدير الأسئلة الآن، ستحمل الورقة اسمك ورقمك (كعلامة مائية)، ولن تتمكن من طلب إعادة الاختبار نهائياً.\n\nهل أنت متأكد من رغبتك في التصدير؟'
+    if (!window.confirm(confirmMsg)) return
+
+    setBusy(true)
+    
+    // 1. جلب مفاتيح الإجابات للتصدير
+    const qIds = questions.map(q => q.id)
+    const { data: kData } = await supabase.from('question_keys').select('*').in('question_id', qIds)
+    const keysMap: Record<string, any> = {}
+    for (const k of (kData || [])) keysMap[k.question_id] = k
+
+    // 2. تسجيل التصدير في قاعدة البيانات
+    const { error } = await supabase.rpc('mark_attempt_exported', { p_attempt_id: at.id })
+    
+    if (error) {
+      setError('تعذّر تسجيل التصدير: ' + error.message)
+      setBusy(false)
+      return
+    }
+
+    // 3. تجهيز البيانات للطباعة
+    const preparedData = questions.map(q => {
+      const ans = reviewAnswers[q.id]
+      const k = keysMap[q.id]
+      
+      let studentAnswer = '—'
+      let correctAnswer = '—'
+
+      if (q.type === 'mcq') {
+        const chosen = options[q.id]?.find(o => o.id === ans?.option_id)
+        studentAnswer = chosen ? `${chosen.label}) ${chosen.text}` : '—'
+        const correct = options[q.id]?.find(o => o.id === k?.correct_option_id)
+        correctAnswer = correct ? `${correct.label}) ${correct.text}` : '—'
+      } else if (q.type === 'tf') {
+        studentAnswer = ans?.text_answer === 'true' ? 'صح' : ans?.text_answer === 'false' ? 'خطأ' : '—'
+        correctAnswer = k?.correct_tf ? 'صح' : 'خطأ'
+      } else {
+        studentAnswer = ans?.text_answer || '—'
+        correctAnswer = k?.model_answer || '—'
+      }
+
+      return { id: q.id, type: q.type, text: q.text, score: q.score, studentAnswer, correctAnswer }
+    })
+
+    setExportData(preparedData)
+    setShowExport(true)
+    
+    // 4. تحديث المحاولات محلياً
+    setAttempts(prev => ({ 
+      ...prev, 
+      [running.id]: { ...prev[running.id], exported_at: new Date().toISOString() } 
+    }))
+    
+    setBusy(false)
   }
 
   if (loading) return <section className={card}><p className="text-ink-muted text-lg">جارٍ التحميل...</p></section>
@@ -406,6 +472,10 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
     const answered = countAnswered()
     const isReview = mode === 'review'
     const stats = countAnsweredByType()
+    
+    // ⬇️ جلب حالة المحاولة الحالية
+    const currentAttempt = attempts[running.id]
+    const hasExported = !!currentAttempt?.exported_at
 
     return (
       <div className="space-y-5">
@@ -436,7 +506,6 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
             </div>
           </div>
 
-          {/* شريط تقدم شامل + عدادات لكل نوع */}
           {!isReview && (
             <div className="mt-5 space-y-3">
               <div className="flex items-center justify-between text-sm text-white/90">
@@ -670,24 +739,40 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
           if (!at || at.status !== 'graded') return null
           return (
             <div className="rounded-2xl border-2 border-accent bg-gradient-to-l from-accent-soft/40 to-white p-5 shadow-sm">
-              <h3 className="text-lg font-bold text-primary">هل تريد إعادة الاختبار؟</h3>
+              <h3 className="text-lg font-bold text-primary">هل تريد إعادة الاختبار أو تصدير الأسئلة؟</h3>
               <p className="mt-1 text-sm text-ink-muted">
-                يمكنك طلب إعادة محاولة جديدة. سيُرسل الطلب للأستاذ مع العذر الذي تكتبه.
+                يمكنك طلب إعادة، أو تصدير الأسئلة للمراجعة (لكن التصدير يلغي حقك في الإعادة).
               </p>
-              {hasPendingRetake && (
-                <div className="mt-3 rounded-lg bg-accent-soft/40 px-3 py-2 text-sm font-semibold text-primary ring-1 ring-accent/50">
-                  📩 طلب الإعادة قيد المراجعة عند الأستاذ
+              
+              {hasExported ? (
+                <div className="mt-3 rounded-lg bg-error-soft px-3 py-2 text-sm font-semibold text-error ring-1 ring-error/20 flex flex-wrap justify-between items-center gap-2">
+                  <span>⚠️ لقد قمت بتصدير الأسئلة سابقاً (لا يمكن طلب إعادة).</span>
+                  <button className={btnWarning} onClick={handleExport}>🖨️ إعادة عرض الملف</button>
                 </div>
-              )}
-              {retake?.status === 'rejected' && !hasPendingRetake && (
-                <div className="mt-3 rounded-lg bg-error-soft px-3 py-2 text-sm font-semibold text-error ring-1 ring-error/20">
-                  ❌ رُفض آخر طلب إعادة — يمكنك طلب إعادة جديدة.
+              ) : (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button className={btnWarning} onClick={handleExport} disabled={busy}>
+                    🖨️ تصدير الأسئلة (يُلغي حق الإعادة)
+                  </button>
+                  
+                  {hasPendingRetake && (
+                    <span className="rounded-lg bg-accent-soft/40 px-3 py-2 text-sm font-semibold text-primary ring-1 ring-accent/50">
+                      📩 طلب الإعادة قيد المراجعة
+                    </span>
+                  )}
+                  
+                  {retake?.status === 'rejected' && !hasPendingRetake && (
+                    <span className="rounded-lg bg-error-soft px-3 py-2 text-sm font-semibold text-error ring-1 ring-error/20">
+                      ❌ رُفض آخر طلب إعادة
+                    </span>
+                  )}
+
+                  {!hasPendingRetake && (
+                    <button className={btn} onClick={() => openRetakeModal(running, at.id)}>
+                      طلب إعادة
+                    </button>
+                  )}
                 </div>
-              )}
-              {!hasPendingRetake && (
-                <button className={btn + ' mt-3'} onClick={() => openRetakeModal(running, at.id)}>
-                  طلب إعادة
-                </button>
               )}
             </div>
           )
@@ -756,6 +841,17 @@ export default function SelfTestTab({ onAttemptSaved }: { onAttemptSaved?: () =>
             </div>
           )
         })()}
+
+        {/* ⬇️ نافذة التصدير */}
+        {showExport && running && (
+          <StudentExportView
+            studentName={profile?.full_name || 'طالب'}
+            studentNo={profile?.student_no || '—'}
+            activityTitle={running.title}
+            questions={exportData}
+            onClose={() => setShowExport(false)}
+          />
+        )}
       </div>
     )
   }

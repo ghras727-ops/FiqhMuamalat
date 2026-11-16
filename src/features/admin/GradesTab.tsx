@@ -31,11 +31,13 @@ interface AttemptRow {
   activity_title: string; week_number: number
   auto_score: number; manual_score: number | null
   total_possible: number; status: string; submitted_at: string
+  exported_at: string | null // ⬅️ إضافة
 }
 interface RawAttempt {
   id: string; activity_id: string; student_id: string
   auto_score: number; manual_score: number | null
   status: string; submitted_at: string
+  exported_at: string | null // ⬅️ إضافة
 }
 interface Question { id: string; type: QType; text: string; score: number }
 interface Option { id: string; question_id: string; label: string; text: string; position: number }
@@ -97,7 +99,6 @@ export default function GradesTab() {
   const [gradingAq, setGradingAq] = useState<AQ[]>([])
   const [gradingAnswers, setGradingAnswers] = useState<Record<string, AnswerRow>>({})
   const [grades, setGrades] = useState<Record<string, string>>({})
-  // ⬇️ تم إرجاع الأقسام لتكون مطوية افتراضياً (false)
   const [open, setOpen] = useState<Record<QType, boolean>>({ mcq: false, tf: false, essay_smart: false, essay_reasoning: false })
   const [busy, setBusy] = useState(false)
 
@@ -110,7 +111,8 @@ export default function GradesTab() {
 
     const [wRes, att, rq] = await Promise.all([
       supabase.from('weeks').select('id,number,title').order('number'),
-      supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at').order('submitted_at', { ascending: false }),
+      // ⬇️ إضافة exported_at
+      supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at,exported_at').order('submitted_at', { ascending: false }),
       supabase.from('retake_requests').select('id,activity_id,student_id,attempt_id,reason,created_at,status').eq('status', 'pending').order('created_at', { ascending: true }),
     ])
 
@@ -208,6 +210,7 @@ export default function GradesTab() {
         auto_score: a.auto_score, manual_score: a.manual_score,
         total_possible: totalByAttempt[a.id] ?? 0,
         status: a.status, submitted_at: a.submitted_at,
+        exported_at: a.exported_at, // ⬅️ إضافة
       }
     })
     setRows(out)
@@ -393,7 +396,6 @@ export default function GradesTab() {
     await load()
   }
 
-  // ⬇️ دالة نسخ المقالي للتصحيح بالذكاء الاصطناعي
   function copyForAI() {
     if (!gradingRow) return
     const essays = gradingQuestions.filter(q => q.type.startsWith('essay'))
@@ -583,7 +585,15 @@ export default function GradesTab() {
                   return (
                     <tr key={r.id} className="border-b border-light-blue/50 hover:bg-bg">
                       <td className="p-3">{i + 1}</td>
-                      <td className="p-3 text-base font-semibold text-ink">{r.student_name}</td>
+                      <td className="p-3 text-base font-semibold text-ink">
+                        {r.student_name}
+                        {/* ⬇️ شارة التصدير */}
+                        {r.exported_at && (
+                          <span className="ms-2 inline-block rounded bg-error-soft px-2 py-0.5 text-[10px] font-bold text-error ring-1 ring-error/20" title="قام الطالب بتصدير الأسئلة">
+                            ⚠️ صَدَّر
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3 font-mono text-xs text-ink-muted" dir="ltr">{r.student_no ?? '—'}</td>
                       {selectedWeek === 'all' && (
                         <td className="p-3">
