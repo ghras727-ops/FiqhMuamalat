@@ -14,7 +14,7 @@ interface StudentGrade {
   assignments_10: number
   attendance_10: number
   midterm_raw_60: number | null
-  midterm_20: number
+  midterm_20: number | null
   final_60: number | null
   total_100: number
 }
@@ -43,17 +43,22 @@ export default function FinalGradesTab() {
 
     if (gErr) { setError(gErr.message); setLoading(false); return }
 
-    const formatted = (grades || []).map((g: any) => ({
-      student_id: g.student_id,
-      full_name: g.profiles.full_name,
-      student_no: g.profiles.student_no,
-      assignments_10: g.assignments_10 || 0,
-      attendance_10: g.attendance_10 || 0,
-      midterm_raw_60: g.midterm_raw_60,
-      midterm_20: g.midterm_20 || 0,
-      final_60: g.final_60,
-      total_100: g.total_100 || 0
-    }))
+    const formatted = (grades || []).map((g: any) => {
+      // حساب احتياطي في حال كانت القيمة فارغة في القاعدة
+      const calcM20 = g.midterm_20 != null ? g.midterm_20 : (g.midterm_raw_60 ? Number((g.midterm_raw_60 / 3).toFixed(1)) : 0)
+      
+      return {
+        student_id: g.student_id,
+        full_name: g.profiles.full_name,
+        student_no: g.profiles.student_no,
+        assignments_10: g.assignments_10 || 0,
+        attendance_10: g.attendance_10 || 0,
+        midterm_raw_60: g.midterm_raw_60,
+        midterm_20: calcM20,
+        final_60: g.final_60,
+        total_100: g.total_100 || 0
+      }
+    })
 
     setData(formatted)
     setLoading(false)
@@ -77,28 +82,34 @@ export default function FinalGradesTab() {
     if (!supabase) return
     const num = value === '' ? null : Number(value)
     
-    // تحديث الواجهة فوراً (Optimistic UI)
     setData(prev => prev.map(d => {
       if (d.student_id === studentId) {
         const newData = { ...d, [field]: num }
+        
+        // حساب المحتسبة محلياً فوراً
+        let m20 = newData.midterm_20 || 0
+        if (field === 'midterm_raw_60') {
+          m20 = num ? Number((num / 3).toFixed(1)) : 0
+          newData.midterm_20 = m20
+        }
+        
         const a = Math.min(10, newData.assignments_10)
         const at = Math.min(10, newData.attendance_10)
-        
-        // حساب المحتسبة محلياً
-        let m20 = 0
-        if (field === 'midterm_raw_60') m20 = Math.min(20, (num || 0) / 3)
-        else m20 = newData.midterm_20
-        
-        newData.midterm_20 = Number(m20.toFixed(1))
-        
+        const m = Math.min(20, m20)
         const f = Math.min(60, newData.final_60 || 0)
-        newData.total_100 = a + at + newData.midterm_20 + f
+        
+        newData.total_100 = a + at + m + f
         return newData
       }
       return d
     }))
 
-    await supabase.from('final_grades').update({ [field]: num, updated_at: new Date().toISOString() }).eq('student_id', studentId)
+    // تحديث القاعدة
+    const updatePayload: any = { [field]: num }
+    if (field === 'midterm_raw_60') {
+      updatePayload.midterm_20 = num ? Number((num / 3).toFixed(1)) : null
+    }
+    await supabase.from('final_grades').update(updatePayload).eq('student_id', studentId)
   }
 
   const openReport = (type: 'general' | 'individual', student?: StudentGrade) => {
@@ -198,7 +209,7 @@ export default function FinalGradesTab() {
                       placeholder="0"
                     />
                   </td>
-                  <td className="p-3 font-semibold text-accent">{d.midterm_20.toFixed(1)}</td>
+                  <td className="p-3 font-semibold text-accent">{(d.midterm_20 || 0).toFixed(1)}</td>
                   <td className="p-3">
                     <input 
                       type="number" min={0} max={60} className={input} 
@@ -223,7 +234,7 @@ export default function FinalGradesTab() {
         </div>
       </section>
 
-      {/* ⬇️ نافذة معاينة التقرير */}
+      {/* نافذة معاينة التقرير */}
       {showReport && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
           <div className="mx-auto max-w-[900px]">
@@ -272,7 +283,7 @@ export default function FinalGradesTab() {
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px', textAlign: 'right' }}>{d.full_name}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.assignments_10.toFixed(1)}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.attendance_10.toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.midterm_20.toFixed(1)}</td>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{(d.midterm_20 || 0).toFixed(1)}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.final_60 || '0'}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px', fontWeight: 800, color: '#198B48' }}>{d.total_100.toFixed(1)}</td>
                         </tr>
@@ -315,7 +326,7 @@ export default function FinalGradesTab() {
                         </tr>
                         <tr style={{ textAlign: 'center' }}>
                           <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الاختبار النصفي (المحتسب)</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.midterm_20.toFixed(1)}</td>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{(selectedStudent.midterm_20 || 0).toFixed(1)}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>20</td>
                         </tr>
                         <tr style={{ textAlign: 'center' }}>
