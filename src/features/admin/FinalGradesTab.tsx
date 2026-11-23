@@ -13,7 +13,8 @@ interface StudentGrade {
   student_no: string
   assignments_10: number
   attendance_10: number
-  midterm_20: number | null
+  midterm_raw_60: number | null
+  midterm_20: number
   final_60: number | null
   total_100: number
 }
@@ -48,7 +49,8 @@ export default function FinalGradesTab() {
       student_no: g.profiles.student_no,
       assignments_10: g.assignments_10 || 0,
       attendance_10: g.attendance_10 || 0,
-      midterm_20: g.midterm_20,
+      midterm_raw_60: g.midterm_raw_60,
+      midterm_20: g.midterm_20 || 0,
       final_60: g.final_60,
       total_100: g.total_100 || 0
     }))
@@ -71,18 +73,26 @@ export default function FinalGradesTab() {
     await load()
   }
 
-  async function updateManualGrade(studentId: string, field: 'midterm_20' | 'final_60', value: string) {
+  async function updateManualGrade(studentId: string, field: 'midterm_raw_60' | 'final_60', value: string) {
     if (!supabase) return
     const num = value === '' ? null : Number(value)
     
+    // تحديث الواجهة فوراً (Optimistic UI)
     setData(prev => prev.map(d => {
       if (d.student_id === studentId) {
         const newData = { ...d, [field]: num }
         const a = Math.min(10, newData.assignments_10)
         const at = Math.min(10, newData.attendance_10)
-        const m = Math.min(20, newData.midterm_20 || 0)
+        
+        // حساب المحتسبة محلياً
+        let m20 = 0
+        if (field === 'midterm_raw_60') m20 = Math.min(20, (num || 0) / 3)
+        else m20 = newData.midterm_20
+        
+        newData.midterm_20 = Number(m20.toFixed(1))
+        
         const f = Math.min(60, newData.final_60 || 0)
-        newData.total_100 = a + at + m + f
+        newData.total_100 = a + at + newData.midterm_20 + f
         return newData
       }
       return d
@@ -163,7 +173,8 @@ export default function FinalGradesTab() {
                 <th className="p-3 text-start">الطالب</th>
                 <th className="p-3">التكاليف والاختبارات (10)</th>
                 <th className="p-3">الحضور (10)</th>
-                <th className="p-3">الاختبار النصفي (20)</th>
+                <th className="p-3">الميدتيرم (60)</th>
+                <th className="p-3">المحتسبة (20)</th>
                 <th className="p-3">النهائي (60)</th>
                 <th className="p-3 font-bold text-lg">المجموع (100)</th>
                 <th className="p-3">إجراء</th>
@@ -180,13 +191,14 @@ export default function FinalGradesTab() {
                   <td className="p-3 font-semibold text-primary">{d.attendance_10.toFixed(1)}</td>
                   <td className="p-3">
                     <input 
-                      type="number" min={0} max={20} className={input} 
-                      value={d.midterm_20 ?? ''} 
-                      onChange={(e) => void updateManualGrade(d.student_id, 'midterm_20', e.target.value)}
+                      type="number" min={0} max={60} className={input} 
+                      value={d.midterm_raw_60 ?? ''} 
+                      onChange={(e) => void updateManualGrade(d.student_id, 'midterm_raw_60', e.target.value)}
                       onWheel={(e) => e.currentTarget.blur()}
                       placeholder="0"
                     />
                   </td>
+                  <td className="p-3 font-semibold text-accent">{d.midterm_20.toFixed(1)}</td>
                   <td className="p-3">
                     <input 
                       type="number" min={0} max={60} className={input} 
@@ -211,7 +223,7 @@ export default function FinalGradesTab() {
         </div>
       </section>
 
-      {/* ⬇️ نافذة معاينة التقرير (تظهر فوق الشاشة لالتقاطها) */}
+      {/* ⬇️ نافذة معاينة التقرير */}
       {showReport && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
           <div className="mx-auto max-w-[900px]">
@@ -235,12 +247,13 @@ export default function FinalGradesTab() {
                     <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#0B6CB3', margin: 0 }}>جامعة العلوم والتكنولوجيا</h1>
                     <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#123A2E', margin: '4px 0' }}>مقرر فقه المعاملات (1)</h2>
                     <p style={{ fontSize: '14px', color: '#4B5D63', margin: 0 }}>
-                      {reportType === 'general' ? 'التقرير العام للنتائج' : `كشف درجات الطالب: ${selectedStudent?.full_name}`}
+                      {reportType === 'general' ? 'التقرير العام للنتائج (للإدارة)' : `كشف درجات الطالب: ${selectedStudent?.full_name}`}
                     </p>
                   </div>
                   <img src="/UST.png" alt="Logo" style={{ width: '60px', height: '60px' }} />
                 </div>
 
+                {/* تقرير الإدارة (بدون العمود 60) */}
                 {reportType === 'general' && (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
@@ -259,7 +272,7 @@ export default function FinalGradesTab() {
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px', textAlign: 'right' }}>{d.full_name}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.assignments_10.toFixed(1)}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.attendance_10.toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.midterm_20 || '0'}</td>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.midterm_20.toFixed(1)}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.final_60 || '0'}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '6px', fontWeight: 800, color: '#198B48' }}>{d.total_100.toFixed(1)}</td>
                         </tr>
@@ -268,6 +281,7 @@ export default function FinalGradesTab() {
                   </table>
                 )}
 
+                {/* تقرير الطالب (يحتوي على العمود 60 والعمود 20) */}
                 {reportType === 'individual' && selectedStudent && (
                   <div>
                     <div style={{ background: '#F7FBFD', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #D6E4EC' }}>
@@ -295,8 +309,13 @@ export default function FinalGradesTab() {
                           <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>10</td>
                         </tr>
                         <tr style={{ textAlign: 'center' }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الاختبار النصفي</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.midterm_20 || '0'}</td>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الميدتيرم (الدرجة الخام)</td>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.midterm_raw_60 || '0'}</td>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>60</td>
+                        </tr>
+                        <tr style={{ textAlign: 'center' }}>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الاختبار النصفي (المحتسب)</td>
+                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.midterm_20.toFixed(1)}</td>
                           <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>20</td>
                         </tr>
                         <tr style={{ textAlign: 'center' }}>
