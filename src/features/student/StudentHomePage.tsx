@@ -63,7 +63,6 @@ export default function StudentHomePage() {
   const [error, setError] = useState<string | null>(null)
   const [reports, setReports] = useState<MyReport[]>([])
   const [viewingReport, setViewingReport] = useState<MyReport | null>(null)
-  const [reportLoading, setReportLoading] = useState(false)
 
   const [studentCompSnapshot, setStudentCompSnapshot] = useState<ComprehensiveSnapshot | null>(null)
   const [compBusy, setCompBusy] = useState(false)
@@ -335,7 +334,7 @@ export default function StudentHomePage() {
                   reportNumber={viewingReport.report_number || ''}
                   approvedAt={viewingReport.approved_at}
                 />
-              ) : reportLoading || !viewingReport.snapshot ? (
+              ) : !viewingReport.snapshot ? (
                 <div className="p-12 text-center text-primary font-bold text-lg">⏳ جارٍ تحميل التقرير...</div>
               ) : (
                 <WeeklyReport

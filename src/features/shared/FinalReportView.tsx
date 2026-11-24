@@ -1,5 +1,4 @@
-import React from 'react'
-
+// D:\FiqhMuamalat\src\features\shared\FinalReportView.tsx
 const C = {
   blue: '#0B6CB3', blueSoft: '#E6F2FA', green: '#198B48', greenSoft: '#E8F5ED',
   ink: '#123A2E', gray: '#4B5D63', line: '#D6E4EC', paper: '#F7FBFD',
