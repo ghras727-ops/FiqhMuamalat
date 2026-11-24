@@ -10,6 +10,7 @@ import StudentsTab from './StudentsTab'
 import TablesTab from './TablesTab'
 import WeeksTab from './WeeksTab'
 import AssignmentsTab from './AssignmentsTab'
+import AdminMessagesTab from './AdminMessagesTab'
 import FinalGradesTab from './FinalGradesTab' // ⬅️ التبويب الجديد
 
 const TABS: ShellTab[] = [
@@ -19,6 +20,7 @@ const TABS: ShellTab[] = [
   { key: 'attendance', label: 'الحضور والغياب' },
   { key: 'weeks', label: 'الأسابيع والدروس' },
   { key: 'assignments', label: 'التكاليف' },
+  { key: 'messages', label: 'المراسلة' },
   { key: 'bank', label: 'بنك الأسئلة' },
   { key: 'grades', label: 'الدرجات' },
   { key: 'reports', label: 'التقارير' },
@@ -41,6 +43,7 @@ export default function AdminPage() {
     { key: 'attendance', node: <AttendanceTab /> },
     { key: 'weeks', node: <WeeksTab /> },
     { key: 'assignments', node: <AssignmentsTab /> },
+    { key: 'messages', node: <AdminMessagesTab /> },
     { key: 'bank', node: <QuizSetsTab /> },
     { key: 'grades', node: <GradesTab /> },
     { key: 'reports', node: <ReportsTab /> },

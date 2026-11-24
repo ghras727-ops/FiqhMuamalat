@@ -5,6 +5,8 @@ import FeedTab from './FeedTab'
 import WeekPacksView from './WeekPacksView'
 import SelfTestTab from './SelfTestTab'
 import StudentAssignmentsTab from './StudentAssignmentsTab'
+import StudentMessagesTab from './StudentMessagesTab'
+import { useUnreadMessages } from '../shared/useUnreadMessages'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import Tag from '../../components/Tag'
 import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
@@ -45,6 +47,7 @@ function formatTestDate(iso: string | null | undefined): string {
 export default function StudentHomePage() {
   const { profile } = useAuth()
   const [tab, setTab] = useState('feed')
+  const { counts: unreadMsgs } = useUnreadMessages()
   const [mounted, setMounted] = useState<string[]>(['feed'])
 
   const [hasNewAssignments, setHasNewAssignments] = useState(false)
@@ -140,6 +143,7 @@ export default function StudentHomePage() {
     { key: 'lessons', label: 'دروس الأسابيع' },
     { key: 'selftest', label: 'اختبر نفسك' },
     { key: 'assignments', label: hasNewAssignments ? '🔴 التكاليف' : 'التكاليف' },
+    { key: 'messages', label: unreadMsgs.directCount > 0 ? '🔴 المراسلة' : 'المراسلة' },
     { key: 'acts', label: 'أنشطتي' },
     { key: 'grades', label: hasNewReports ? '🔴 درجاتي' : 'درجاتي' },
   ]
@@ -160,6 +164,7 @@ export default function StudentHomePage() {
       {mounted.includes('lessons') && <div style={show('lessons')}><WeekPacksView /></div>}
       {mounted.includes('selftest') && <div style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
       {mounted.includes('assignments') && <div style={show('assignments')}><StudentAssignmentsTab /></div>}
+      {mounted.includes('messages') && <div style={show('messages')}><StudentMessagesTab /></div>}
 
       {mounted.includes('acts') && (
         <div style={show('acts')}>
