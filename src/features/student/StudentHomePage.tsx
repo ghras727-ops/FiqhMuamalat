@@ -11,6 +11,7 @@ import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
 import MessagesTab from '../shared/MessagesTab'
 import { useUnreadMessages } from '../shared/useUnreadMessages'
 import ComprehensiveReport, { type ComprehensiveSnapshot } from '../shared/ComprehensiveReport'
+import FinalReportView from '../shared/FinalReportView'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
@@ -143,15 +144,6 @@ export default function StudentHomePage() {
     if (!r.seen_at && supabase) {
       await supabase.rpc('mark_report_seen', { p_report_id: r.id })
       setReports((prev) => prev.map((x) => x.id === r.id ? { ...x, seen_at: new Date().toISOString() } : x))
-    }
-    // جلب التقرير الكامل فقط عند الضغط عليه
-    if (!r.snapshot && supabase) {
-      setReportLoading(true)
-      const { data } = await supabase.from('weekly_reports').select('snapshot').eq('id', r.id).single()
-      if (data) {
-        setViewingReport({ ...r, snapshot: data.snapshot })
-      }
-      setReportLoading(false)
     }
   }
 
@@ -337,10 +329,21 @@ export default function StudentHomePage() {
               <div className="flex flex-wrap gap-2"><button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button><button className={btn} onClick={() => setViewingReport(null)}>إغلاق</button></div>
             </div>
             <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
-              {reportLoading || !viewingReport.snapshot ? (
+              {viewingReport.type === 'final' ? (
+                <FinalReportView
+                  snapshot={viewingReport.snapshot as any}
+                  reportNumber={viewingReport.report_number || ''}
+                  approvedAt={viewingReport.approved_at}
+                />
+              ) : reportLoading || !viewingReport.snapshot ? (
                 <div className="p-12 text-center text-primary font-bold text-lg">⏳ جارٍ تحميل التقرير...</div>
               ) : (
-                <WeeklyReport snapshot={viewingReport.snapshot} reportNumber={viewingReport.report_number} approvedAt={viewingReport.approved_at} teacherNote={viewingReport.teacher_note} />
+                <WeeklyReport
+                  snapshot={viewingReport.snapshot}
+                  reportNumber={viewingReport.report_number}
+                  approvedAt={viewingReport.approved_at}
+                  teacherNote={viewingReport.teacher_note}
+                />
               )}
             </div>
           </div>

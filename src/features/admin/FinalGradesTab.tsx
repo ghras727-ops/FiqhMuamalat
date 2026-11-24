@@ -7,6 +7,12 @@ const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const input = 'w-20 rounded-xl border border-light-blue p-2 text-center text-sm font-bold text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-accent/40'
 const btnOutline = 'rounded-xl border border-primary bg-white px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
 
+const C = {
+  blue: '#0B6CB3', blueSoft: '#E6F2FA', green: '#198B48', greenSoft: '#E8F5ED',
+  ink: '#123A2E', gray: '#4B5D63', line: '#D6E4EC', paper: '#F7FBFD',
+}
+const TEACHER = 'د. محمد إسماعيل'
+
 interface StudentGrade {
   student_id: string
   full_name: string
@@ -44,9 +50,7 @@ export default function FinalGradesTab() {
     if (gErr) { setError(gErr.message); setLoading(false); return }
 
     const formatted = (grades || []).map((g: any) => {
-      // حساب احتياطي في حال كانت القيمة فارغة في القاعدة
       const calcM20 = g.midterm_20 != null ? g.midterm_20 : (g.midterm_raw_60 ? Number((g.midterm_raw_60 / 3).toFixed(1)) : 0)
-      
       return {
         student_id: g.student_id,
         full_name: g.profiles.full_name,
@@ -59,7 +63,6 @@ export default function FinalGradesTab() {
         total_100: g.total_100 || 0
       }
     })
-
     setData(formatted)
     setLoading(false)
   }, [])
@@ -70,7 +73,6 @@ export default function FinalGradesTab() {
     if (!supabase) return
     if (!window.confirm('سيتم سحب درجات التكاليف والحضور آلياً. هل تريد المتابعة؟')) return
     setBusy(true); setError(null); setSuccess(null)
-    
     const { error: rpcErr } = await supabase.rpc('sync_final_grades')
     setBusy(false)
     if (rpcErr) { setError(rpcErr.message); return }
@@ -81,35 +83,34 @@ export default function FinalGradesTab() {
   async function updateManualGrade(studentId: string, field: 'midterm_raw_60' | 'final_60', value: string) {
     if (!supabase) return
     const num = value === '' ? null : Number(value)
-    
     setData(prev => prev.map(d => {
       if (d.student_id === studentId) {
         const newData = { ...d, [field]: num }
-        
-        // حساب المحتسبة محلياً فوراً
         let m20 = newData.midterm_20 || 0
         if (field === 'midterm_raw_60') {
           m20 = num ? Number((num / 3).toFixed(1)) : 0
           newData.midterm_20 = m20
         }
-        
-        const a = Math.min(10, newData.assignments_10)
-        const at = Math.min(10, newData.attendance_10)
-        const m = Math.min(20, m20)
-        const f = Math.min(60, newData.final_60 || 0)
-        
-        newData.total_100 = a + at + m + f
+        newData.total_100 = Math.min(10, newData.assignments_10) + Math.min(10, newData.attendance_10) + Math.min(20, m20) + Math.min(60, newData.final_60 || 0)
         return newData
       }
       return d
     }))
-
-    // تحديث القاعدة
     const updatePayload: any = { [field]: num }
-    if (field === 'midterm_raw_60') {
-      updatePayload.midterm_20 = num ? Number((num / 3).toFixed(1)) : null
-    }
+    if (field === 'midterm_raw_60') updatePayload.midterm_20 = num ? Number((num / 3).toFixed(1)) : null
     await supabase.from('final_grades').update(updatePayload).eq('student_id', studentId)
+  }
+
+  async function sendToStudent(student: StudentGrade) {
+    if (!supabase) return
+    if (!window.confirm(`إرسال كشف الدرجات النهائي للطالب: ${student.full_name}؟`)) return
+    
+    setBusy(true); setError(null); setSuccess(null)
+    const { error: rpcErr } = await supabase.rpc('publish_final_report', { p_student_id: student.student_id })
+    setBusy(false)
+    
+    if (rpcErr) { setError('تعذّر الإرسال: ' + rpcErr.message); return }
+    setSuccess(`تم إرسال كشف الدرجات للطالب ${student.full_name} بنجاح!`)
   }
 
   const openReport = (type: 'general' | 'individual', student?: StudentGrade) => {
@@ -121,30 +122,24 @@ export default function FinalGradesTab() {
   const downloadPdf = async () => {
     if (!reportRef.current) return
     setGeneratingPdf(true)
-    
     try {
       await document.fonts.ready
       const imgData = await toPng(reportRef.current, { pixelRatio: 2, backgroundColor: '#ffffff' })
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = pdf.internal.pageSize.getHeight()
       const imgProps = pdf.getImageProperties(imgData)
       const imgHeight = (imgProps.height * pdfWidth) / imgProps.width
-
       let heightLeft = imgHeight
       let position = 0
-
       pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight)
       heightLeft -= pdfHeight
-
       while (heightLeft > 0) {
         position = heightLeft - imgHeight
         pdf.addPage()
         pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight)
         heightLeft -= pdfHeight
       }
-
       pdf.save(reportType === 'general' ? 'التقرير_العام_للنتائج.pdf' : `نتيجة_${selectedStudent?.full_name}.pdf`)
     } catch (err) {
       console.error(err)
@@ -182,13 +177,13 @@ export default function FinalGradesTab() {
             <thead>
               <tr className="border-b-2 border-primary bg-primary-soft/30 text-primary">
                 <th className="p-3 text-start">الطالب</th>
-                <th className="p-3">التكاليف والاختبارات (10)</th>
+                <th className="p-3">التكاليف (10)</th>
                 <th className="p-3">الحضور (10)</th>
-                <th className="p-3">الميدتيرم (60)</th>
+                <th className="p-3">النصفي (60)</th>
                 <th className="p-3">المحتسبة (20)</th>
                 <th className="p-3">النهائي (60)</th>
                 <th className="p-3 font-bold text-lg">المجموع (100)</th>
-                <th className="p-3">إجراء</th>
+                <th className="p-3">إجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -201,31 +196,18 @@ export default function FinalGradesTab() {
                   <td className="p-3 font-semibold text-primary">{d.assignments_10.toFixed(1)}</td>
                   <td className="p-3 font-semibold text-primary">{d.attendance_10.toFixed(1)}</td>
                   <td className="p-3">
-                    <input 
-                      type="number" min={0} max={60} className={input} 
-                      value={d.midterm_raw_60 ?? ''} 
-                      onChange={(e) => void updateManualGrade(d.student_id, 'midterm_raw_60', e.target.value)}
-                      onWheel={(e) => e.currentTarget.blur()}
-                      placeholder="0"
-                    />
+                    <input type="number" min={0} max={60} className={input} value={d.midterm_raw_60 ?? ''} onChange={(e) => void updateManualGrade(d.student_id, 'midterm_raw_60', e.target.value)} onWheel={(e) => e.currentTarget.blur()} placeholder="0" />
                   </td>
                   <td className="p-3 font-semibold text-accent">{(d.midterm_20 || 0).toFixed(1)}</td>
                   <td className="p-3">
-                    <input 
-                      type="number" min={0} max={60} className={input} 
-                      value={d.final_60 ?? ''} 
-                      onChange={(e) => void updateManualGrade(d.student_id, 'final_60', e.target.value)}
-                      onWheel={(e) => e.currentTarget.blur()}
-                      placeholder="0"
-                    />
+                    <input type="number" min={0} max={60} className={input} value={d.final_60 ?? ''} onChange={(e) => void updateManualGrade(d.student_id, 'final_60', e.target.value)} onWheel={(e) => e.currentTarget.blur()} placeholder="0" />
                   </td>
                   <td className="p-3">
-                    <span className="inline-block rounded-lg bg-secondary px-4 py-1.5 text-base font-bold text-white shadow-sm">
-                      {d.total_100.toFixed(1)}
-                    </span>
+                    <span className="inline-block rounded-lg bg-secondary px-4 py-1.5 text-base font-bold text-white shadow-sm">{d.total_100.toFixed(1)}</span>
                   </td>
-                  <td className="p-3">
+                  <td className="p-3 flex flex-wrap gap-1 justify-center">
                     <button className={btnOutline} onClick={() => openReport('individual', d)}>تقرير</button>
+                    <button className="rounded-xl border border-secondary bg-white px-3 py-1.5 text-sm font-semibold text-secondary hover:bg-secondary-soft" onClick={() => void sendToStudent(d)}>إرسال</button>
                   </td>
                 </tr>
               ))}
@@ -234,7 +216,6 @@ export default function FinalGradesTab() {
         </div>
       </section>
 
-      {/* نافذة معاينة التقرير */}
       {showReport && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
           <div className="mx-auto max-w-[900px]">
@@ -253,100 +234,100 @@ export default function FinalGradesTab() {
             <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
               <div ref={reportRef} style={{ width: '794px', background: 'white', padding: '40px', fontFamily: '"Cairo", sans-serif', direction: 'rtl', margin: '0 auto' }}>
                 
-                <div style={{ borderBottom: '2px solid #0B6CB3', paddingBottom: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {/* الترويسة الرسمية */}
+                <div style={{ borderBottom: `2px solid ${C.blue}`, paddingBottom: '15px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#0B6CB3', margin: 0 }}>جامعة العلوم والتكنولوجيا</h1>
-                    <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#123A2E', margin: '4px 0' }}>مقرر فقه المعاملات (1)</h2>
-                    <p style={{ fontSize: '14px', color: '#4B5D63', margin: 0 }}>
-                      {reportType === 'general' ? 'التقرير العام للنتائج (للإدارة)' : `كشف درجات الطالب: ${selectedStudent?.full_name}`}
-                    </p>
+                    <h1 style={{ fontSize: '24px', fontWeight: 800, color: C.blue, margin: 0 }}>جامعة العلوم والتكنولوجيا</h1>
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, color: C.ink, margin: '4px 0' }}>كلية العلوم الإدارية والإنسانية - قسم الشريعة والقانون</h2>
+                    <p style={{ fontSize: '15px', color: C.gray, margin: 0 }}>مقرر فقه المعاملات (1)</p>
                   </div>
-                  <img src="/UST.png" alt="Logo" style={{ width: '60px', height: '60px' }} />
+                  <img src="/UST.png" alt="Logo" style={{ width: '70px', height: '70px' }} />
                 </div>
 
-                {/* تقرير الإدارة (بدون العمود 60) */}
-                {reportType === 'general' && (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                    <thead>
-                      <tr style={{ background: '#E6F2FA', color: '#0B6CB3' }}>
-                        <th style={{ border: '1px solid #D6E4EC', padding: '8px', textAlign: 'right' }}>الطالب</th>
-                        <th style={{ border: '1px solid #D6E4EC', padding: '8px' }}>التكاليف (10)</th>
-                        <th style={{ border: '1px solid #D6E4EC', padding: '8px' }}>الحضور (10)</th>
-                        <th style={{ border: '1px solid #D6E4EC', padding: '8px' }}>النصفي (20)</th>
-                        <th style={{ border: '1px solid #D6E4EC', padding: '8px' }}>النهائي (60)</th>
-                        <th style={{ border: '1px solid #D6E4EC', padding: '8px' }}>المجموع (100)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.map(d => (
-                        <tr key={d.student_id} style={{ textAlign: 'center' }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px', textAlign: 'right' }}>{d.full_name}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.assignments_10.toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.attendance_10.toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{(d.midterm_20 || 0).toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px' }}>{d.final_60 || '0'}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '6px', fontWeight: 800, color: '#198B48' }}>{d.total_100.toFixed(1)}</td>
+                {reportType === 'general' ? (
+                  <>
+                    <h3 style={{ textAlign: 'center', fontSize: '18px', fontWeight: 800, color: C.blue, marginBottom: '15px' }}>كشف النتائج التجميعي (للإدارة)</h3>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                      <thead>
+                        <tr style={{ background: C.blueSoft, color: C.blue }}>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '8px', textAlign: 'right' }}>الطالب</th>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '8px' }}>التكاليف (10)</th>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '8px' }}>الحضور (10)</th>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '8px' }}>النصفي (20)</th>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '8px' }}>النهائي (60)</th>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '8px' }}>المجموع (100)</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-
-                {/* تقرير الطالب (يحتوي على العمود 60 والعمود 20) */}
-                {reportType === 'individual' && selectedStudent && (
-                  <div>
-                    <div style={{ background: '#F7FBFD', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #D6E4EC' }}>
-                      <p style={{ margin: '5px 0', fontSize: '14px' }}><b>الاسم:</b> {selectedStudent.full_name}</p>
-                      <p style={{ margin: '5px 0', fontSize: '14px' }}><b>الرقم الجامعي:</b> {selectedStudent.student_no}</p>
+                      </thead>
+                      <tbody>
+                        {data.map(d => (
+                          <tr key={d.student_id} style={{ textAlign: 'center' }}>
+                            <td style={{ border: `1px solid ${C.line}`, padding: '6px', textAlign: 'right' }}>{d.full_name}</td>
+                            <td style={{ border: `1px solid ${C.line}`, padding: '6px' }}>{d.assignments_10.toFixed(1)}</td>
+                            <td style={{ border: `1px solid ${C.line}`, padding: '6px' }}>{d.attendance_10.toFixed(1)}</td>
+                            <td style={{ border: `1px solid ${C.line}`, padding: '6px' }}>{(d.midterm_20 || 0).toFixed(1)}</td>
+                            <td style={{ border: `1px solid ${C.line}`, padding: '6px' }}>{d.final_60 || '0'}</td>
+                            <td style={{ border: `1px solid ${C.line}`, padding: '6px', fontWeight: 800, color: C.green }}>{d.total_100.toFixed(1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                ) : (
+                  <>
+                    <h3 style={{ textAlign: 'center', fontSize: '18px', fontWeight: 800, color: C.blue, marginBottom: '15px' }}>كشف الدرجات النهائي للطالب</h3>
+                    <div style={{ background: C.paper, padding: '15px', borderRadius: '8px', marginBottom: '20px', border: `1px solid ${C.line}`, display: 'flex', justifyContent: 'space-between' }}>
+                      <p style={{ margin: 0, fontSize: '15px' }}><b>اسم الطالب:</b> {selectedStudent?.full_name}</p>
+                      <p style={{ margin: 0, fontSize: '15px' }}><b>الرقم الجامعي:</b> {selectedStudent?.student_no}</p>
                     </div>
                     
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                       <thead>
-                        <tr style={{ background: '#E6F2FA', color: '#0B6CB3' }}>
-                          <th style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>البند</th>
-                          <th style={{ border: '1px solid #D6E4EC', padding: '10px' }}>الدرجة</th>
-                          <th style={{ border: '1px solid #D6E4EC', padding: '10px' }}>من</th>
+                        <tr style={{ background: C.blueSoft, color: C.blue }}>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>البند التقييمي</th>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '10px' }}>الدرجة المحصلة</th>
+                          <th style={{ border: `1px solid ${C.line}`, padding: '10px' }}>الدرجة العظمى</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr style={{ textAlign: 'center' }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>التكاليف والاختبارات القصيرة</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.assignments_10.toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>10</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>التكاليف والاختبارات الأسبوعية</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{selectedStudent?.assignments_10.toFixed(1)}</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>10</td>
                         </tr>
                         <tr style={{ textAlign: 'center' }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الحضور والغياب</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.attendance_10.toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>10</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>الحضور والغياب</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{selectedStudent?.attendance_10.toFixed(1)}</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>10</td>
                         </tr>
                         <tr style={{ textAlign: 'center' }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الميدتيرم (الدرجة الخام)</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.midterm_raw_60 || '0'}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>60</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>الاختبار النصفي</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{(selectedStudent?.midterm_20 || 0).toFixed(1)}</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>20</td>
                         </tr>
                         <tr style={{ textAlign: 'center' }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الاختبار النصفي (المحتسب)</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{(selectedStudent.midterm_20 || 0).toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>20</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>الاختبار النهائي</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{selectedStudent?.final_60 || '0'}</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>60</td>
                         </tr>
-                        <tr style={{ textAlign: 'center' }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right' }}>الاختبار النهائي</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>{selectedStudent.final_60 || '0'}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px' }}>60</td>
-                        </tr>
-                        <tr style={{ textAlign: 'center', background: '#E8F5ED', fontWeight: 800 }}>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', textAlign: 'right', color: '#198B48' }}>المجموع النهائي</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', color: '#198B48' }}>{selectedStudent.total_100.toFixed(1)}</td>
-                          <td style={{ border: '1px solid #D6E4EC', padding: '10px', color: '#198B48' }}>100</td>
+                        <tr style={{ textAlign: 'center', background: C.greenSoft, fontWeight: 800 }}>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '12px', textAlign: 'right', color: C.green }}>المجموع النهائي</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '12px', color: C.green }}>{selectedStudent?.total_100.toFixed(1)}</td>
+                          <td style={{ border: `1px solid ${C.line}`, padding: '12px', color: C.green }}>100</td>
                         </tr>
                       </tbody>
                     </table>
-                  </div>
-                )}
 
-                <div style={{ marginTop: '30px', borderTop: '1px solid #D6E4EC', paddingTop: '10px', textAlign: 'center', fontSize: '12px', color: '#4B5D63' }}>
-                  تم إصدار هذا التقرير آلياً من منصة فقه المعاملات.
-                </div>
+                    <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                      <div style={{ fontSize: '14px', color: C.gray }}>
+                        <p>التاريخ: {new Date().toLocaleDateString('ar-SA-u-nu-latn')}</p>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <img src="/signature.png" alt="Signature" style={{ height: '60px', marginBottom: '5px' }} />
+                        <p style={{ margin: 0, fontWeight: 800, color: C.blue, borderTop: `1px solid ${C.blue}`, paddingTop: '5px', width: '200px' }}>{TEACHER}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
