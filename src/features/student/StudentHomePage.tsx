@@ -8,20 +8,16 @@ import StudentAssignmentsTab from './StudentAssignmentsTab'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import Tag from '../../components/Tag'
 import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
-import MessagesTab from '../shared/MessagesTab'
-import { useUnreadMessages } from '../shared/useUnreadMessages'
-import ComprehensiveReport, { type ComprehensiveSnapshot } from '../shared/ComprehensiveReport'
 import FinalReportView from '../shared/FinalReportView'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
 const btnOutline = 'rounded-xl border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary hover:bg-primary-soft disabled:opacity-60'
-const btnDanger = 'rounded-xl border border-error bg-white px-4 py-2 text-sm font-semibold text-error hover:bg-error-soft disabled:opacity-60'
 const th = 'p-3 text-start text-ink-muted'
 
 interface ActivityRow { id: string; title: string; week_number: number; total_possible: number }
 interface AttemptRow { id: string; activity_id: string; auto_score: number; manual_score: number | null; status: string; submitted_at: string | null }
-interface MyReport { id: string; type: string; from_week_number: number; to_week_number: number; report_number: string | null; approved_at: string; seen_at: string | null; teacher_note: string | null; snapshot?: ReportSnapshot }
+interface MyReport { id: string; type: string; from_week_number: number; to_week_number: number; report_number: string | null; approved_at: string; seen_at: string | null; teacher_note: string | null; snapshot: ReportSnapshot }
 
 function timeAgo(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000
@@ -48,11 +44,9 @@ function formatTestDate(iso: string | null | undefined): string {
 
 export default function StudentHomePage() {
   const { profile } = useAuth()
-  const { counts: msgCounts } = useUnreadMessages()
   const [tab, setTab] = useState('feed')
-  const [refreshKey, setRefreshKey] = useState(0)
   const [mounted, setMounted] = useState<string[]>(['feed'])
-  
+
   const [hasNewAssignments, setHasNewAssignments] = useState(false)
   const [hasNewReports, setHasNewReports] = useState(false)
 
@@ -64,38 +58,40 @@ export default function StudentHomePage() {
   const [reports, setReports] = useState<MyReport[]>([])
   const [viewingReport, setViewingReport] = useState<MyReport | null>(null)
 
-  const [studentCompSnapshot, setStudentCompSnapshot] = useState<ComprehensiveSnapshot | null>(null)
-  const [compBusy, setCompBusy] = useState(false)
-  const [weeks, setWeeks] = useState<{id: string, number: number, title: string}[]>([])
-
   useEffect(() => { setMounted((prev) => (prev.includes(tab) ? prev : [...prev, tab])) }, [tab])
 
   const load = useCallback(async () => {
     if (!supabase) return
     setError(null)
 
-    // تم إزالة snapshot من هنا لتسريع التحميل
-    const [aRes, atRes, rpRes, asgRes, wRes] = await Promise.all([
+    const [aRes, atRes, rpRes, asgRes] = await Promise.all([
       supabase.from('activities').select('id,title,week_id'),
       supabase.from('attempts').select('id,activity_id,auto_score,manual_score,status,submitted_at'),
-      supabase.from('weekly_reports').select('id,type,from_week_number,to_week_number,report_number,approved_at,seen_at,teacher_note').eq('status', 'active').order('approved_at', { ascending: false }),
-      supabase.from('assignments').select('id, created_at').eq('published', true).order('created_at', { ascending: false }).limit(1),
-      supabase.from('weeks').select('id,number,title').order('number')
+      supabase.from('weekly_reports').select('id,type,from_week_number,to_week_number,report_number,approved_at,seen_at,teacher_note,snapshot').eq('status', 'active').order('approved_at', { ascending: false }),
+      supabase.from('assignments').select('id, created_at').eq('published', true).order('created_at', { ascending: false }).limit(1)
     ])
 
     if (aRes.error || atRes.error || rpRes.error) { setError('تعذّر تحميل البيانات.'); return }
 
     const acts = (aRes.data ?? []) as { id: string; title: string; week_id: string }[]
-    const wMap: Record<string, {num: number, title: string}> = {}
-    for (const w of (wRes.data ?? []) as {id: string, number: number, title: string}[]) wMap[w.id] = {num: w.number, title: w.title}
+    const weekIds = Array.from(new Set(acts.map((a) => a.week_id)))
+    const wRes = weekIds.length > 0 ? await supabase.from('weeks').select('id,number').in('id', weekIds) : { data: [], error: null }
+    const weekMap: Record<string, number> = {}
+    for (const w of (wRes.data ?? []) as { id: string; number: number }[]) weekMap[w.id] = w.number
 
-    setWeeks((wRes.data ?? []) as {id: string, number: number, title: string}[])
+    const actIds = acts.map((a) => a.id)
+    const aqRes = actIds.length > 0 ? await supabase.from('activity_questions').select('activity_id,question_id').in('activity_id', actIds) : { data: [], error: null }
+    const qIds = Array.from(new Set(((aqRes.data ?? []) as { question_id: string }[]).map((x) => x.question_id)))
+    const qRes = qIds.length > 0 ? await supabase.from('questions').select('id,score').in('id', qIds) : { data: [], error: null }
+    const scoreMap: Record<string, number> = {}
+    for (const q of (qRes.data ?? []) as { id: string; score: number }[]) scoreMap[q.id] = q.score
+    const totalByAct: Record<string, number> = {}
+    for (const link of (aqRes.data ?? []) as { activity_id: string; question_id: string }[]) totalByAct[link.activity_id] = (totalByAct[link.activity_id] ?? 0) + (scoreMap[link.question_id] ?? 0)
 
+    setActivities(acts.map((a) => ({ id: a.id, title: a.title, week_number: weekMap[a.week_id] ?? 0, total_possible: totalByAct[a.id] ?? 0 })))
+    
     const am: Record<string, AttemptRow> = {}
     for (const t of (atRes.data ?? []) as AttemptRow[]) am[t.activity_id] = t
-
-    // إلغاء سلسلة الاستعلامات وتسريع الواجهة، الدرجة الكاملة ثابتة 60
-    setActivities(acts.map((a) => ({ id: a.id, title: a.title, week_number: wMap[a.week_id]?.num ?? 0, total_possible: 60 })))
     setAttempts(am)
 
     const reps = (rpRes.data ?? []) as MyReport[]
@@ -124,18 +120,11 @@ export default function StudentHomePage() {
   useEffect(() => { void initialLoad() }, [initialLoad])
 
   useEffect(() => {
-    setRefreshKey((prev) => prev + 1)
-    void refresh()
-  }, [tab, refresh])
-
-  useEffect(() => {
     if (tab === 'assignments' && hasNewAssignments) {
       localStorage.setItem('last_seen_assignments', new Date().toISOString())
       setHasNewAssignments(false)
     }
-    if (tab === 'grades' && hasNewReports) {
-      setHasNewReports(false)
-    }
+    if (tab === 'grades' && hasNewReports) setHasNewReports(false)
   }, [tab, hasNewAssignments, hasNewReports])
 
   async function openReport(r: MyReport) {
@@ -146,39 +135,6 @@ export default function StudentHomePage() {
     }
   }
 
-  async function openMyComprehensiveReport() {
-    if (!supabase || !profile) return
-    setCompBusy(true); setError(null)
-    try {
-      const grades = activities.filter(a => attempts[a.id]?.status === 'graded').map(a => {
-        const at = attempts[a.id]!
-        const score = at.auto_score + (at.manual_score ?? 0)
-        const max = a.total_possible || 60
-        const weekName = weeks.find(w => w.number === a.week_number)?.title || a.title
-        return { week: a.week_number, title: weekName, score, max, percent: Math.min(100, Math.round((score/max)*100)), status: at.status }
-      })
-
-      const { data: att } = await supabase.from('attendance').select('week_id, status').eq('student_id', profile.id)
-      const attendance = (att ?? []).map(a => {
-         const week = weeks.find(w => w.id === a.week_id)
-         return { week: week ? week.number : 0, status: a.status }
-      }).filter(a => a.week > 0).sort((a,b) => a.week - b.week)
-
-      setStudentCompSnapshot({
-        student: { full_name: profile.full_name, student_no: profile.student_no },
-        from_week: 1, to_week: weeks.length ? Math.max(...weeks.map(w=>w.number)) : 1,
-        generated_at: new Date().toISOString(),
-        grades: grades.sort((a,b) => a.week - b.week),
-        attendance,
-        options: { showGrades: true, showAttendance: true }
-      })
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setCompBusy(false)
-    }
-  }
-
   const TABS: ShellTab[] = [
     { key: 'feed', label: 'المنصة' },
     { key: 'lessons', label: 'دروس الأسابيع' },
@@ -186,7 +142,6 @@ export default function StudentHomePage() {
     { key: 'assignments', label: hasNewAssignments ? '🔴 التكاليف' : 'التكاليف' },
     { key: 'acts', label: 'أنشطتي' },
     { key: 'grades', label: hasNewReports ? '🔴 درجاتي' : 'درجاتي' },
-    { key: 'messages', label: msgCounts.total > 0 ? `🔴 مراسلة الأستاذ (${msgCounts.total})` : 'مراسلة الأستاذ' },
   ]
 
   const doneCount = activities.filter((a) => { const at = attempts[a.id]; return at?.status === 'submitted' || at?.status === 'graded' }).length
@@ -201,12 +156,10 @@ export default function StudentHomePage() {
         {profile?.student_no && <span className="rounded-lg bg-primary-soft px-2 py-0.5 font-mono text-xs text-primary" dir="ltr">{profile.student_no}</span>}
       </div>
 
-      {mounted.includes('feed') && <div key={refreshKey} style={show('feed')}><FeedTab /></div>}
-      {mounted.includes('lessons') && <div key={refreshKey} style={show('lessons')}><WeekPacksView /></div>}
-      {mounted.includes('selftest') && <div key={refreshKey} style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
-      {mounted.includes('messages') && <div style={show('messages')}><MessagesTab /></div>}
-      
-      {mounted.includes('assignments') && <div key={refreshKey} style={show('assignments')}><StudentAssignmentsTab /></div>}
+      {mounted.includes('feed') && <div style={show('feed')}><FeedTab /></div>}
+      {mounted.includes('lessons') && <div style={show('lessons')}><WeekPacksView /></div>}
+      {mounted.includes('selftest') && <div style={show('selftest')}><SelfTestTab onAttemptSaved={load} /></div>}
+      {mounted.includes('assignments') && <div style={show('assignments')}><StudentAssignmentsTab /></div>}
 
       {mounted.includes('acts') && (
         <div style={show('acts')}>
@@ -257,12 +210,7 @@ export default function StudentHomePage() {
             <section className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 pb-7 text-white shadow-md">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div><h2 className="text-3xl font-bold">درجاتي</h2><p className="mt-1 text-base text-white/85">نتائجك في الأنشطة المصححة.</p></div>
-                <div className="flex flex-wrap gap-2">
-                  <button className="rounded-xl bg-white/20 px-5 py-2.5 text-base font-bold text-white shadow-md hover:bg-white/30 disabled:opacity-60" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}</button>
-                  <button className="rounded-xl bg-secondary px-5 py-2.5 text-base font-bold text-white shadow-md hover:bg-secondary-hover disabled:opacity-60" onClick={() => void openMyComprehensiveReport()} disabled={compBusy}>
-                    {compBusy ? '...' : '📄 استخراج تقريري الشامل'}
-                  </button>
-                </div>
+                <button className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? '⏳ جارٍ التحديث...' : '🔄 تحديث'}</button>
               </div>
             </section>
 
@@ -279,7 +227,13 @@ export default function StudentHomePage() {
                     <li key={r.id} className={'flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 bg-white p-4 transition hover:shadow-md ' + (r.seen_at ? 'border-light-blue' : 'border-accent')}>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-base font-bold text-ink">{r.type === 'weekly' ? `تقرير الأسبوع ${r.from_week_number}` : `تقرير تراكمي — الأسابيع ${r.from_week_number} – ${r.to_week_number}`}</span>
+                          <span className="text-base font-bold text-ink">
+                            {r.type === 'weekly' 
+                              ? `تقرير الأسبوع ${r.from_week_number}` 
+                              : r.type === 'final' 
+                                ? `كشف الدرجات النهائي` 
+                                : `تقرير تراكمي — الأسابيع ${r.from_week_number} – ${r.to_week_number}`}
+                          </span>
                           {!r.seen_at && <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">جديد</span>}
                           {r.report_number && <span className="rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.report_number}</span>}
                         </div>
@@ -324,9 +278,19 @@ export default function StudentHomePage() {
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
           <div className="mx-auto max-w-[900px]">
             <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg">
-              <div className="text-base font-bold text-primary">📄 {viewingReport.type === 'weekly' ? `تقرير الأسبوع ${viewingReport.from_week_number}` : `تقرير تراكمي — الأسابيع ${viewingReport.from_week_number} – ${viewingReport.to_week_number}`}</div>
-              <div className="flex flex-wrap gap-2"><button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button><button className={btn} onClick={() => setViewingReport(null)}>إغلاق</button></div>
+              <div className="text-base font-bold text-primary">
+                📄 {viewingReport.type === 'weekly'
+                  ? `تقرير الأسبوع ${viewingReport.from_week_number}`
+                  : viewingReport.type === 'final'
+                    ? `كشف الدرجات النهائي`
+                    : `تقرير تراكمي — الأسابيع ${viewingReport.from_week_number} – ${viewingReport.to_week_number}`}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button>
+                <button className={btn} onClick={() => setViewingReport(null)}>إغلاق</button>
+              </div>
             </div>
+            
             <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
               {viewingReport.type === 'final' ? (
                 <FinalReportView
@@ -334,8 +298,6 @@ export default function StudentHomePage() {
                   reportNumber={viewingReport.report_number || ''}
                   approvedAt={viewingReport.approved_at}
                 />
-              ) : !viewingReport.snapshot ? (
-                <div className="p-12 text-center text-primary font-bold text-lg">⏳ جارٍ تحميل التقرير...</div>
               ) : (
                 <WeeklyReport
                   snapshot={viewingReport.snapshot}
@@ -346,23 +308,6 @@ export default function StudentHomePage() {
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {studentCompSnapshot && (
-        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/70 p-2 md:p-6 print:bg-white print:p-0">
-           <div className="mx-auto max-w-[210mm]">
-             <div className="no-print sticky top-0 z-10 mb-3 flex justify-between rounded-2xl bg-white p-3 shadow-lg">
-                <div className="font-bold text-primary">تقريري الشامل</div>
-                <div className="flex gap-2">
-                  <button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button>
-                  <button className={btnDanger} onClick={() => setStudentCompSnapshot(null)}>إغلاق</button>
-                </div>
-             </div>
-             <div className="bg-white shadow-2xl print:shadow-none">
-               <ComprehensiveReport snapshot={studentCompSnapshot} />
-             </div>
-           </div>
         </div>
       )}
     </AppShell>

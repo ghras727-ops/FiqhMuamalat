@@ -1,4 +1,3 @@
-// D:\FiqhMuamalat\src\features\shared\FinalReportView.tsx
 const C = {
   blue: '#0B6CB3', blueSoft: '#E6F2FA', green: '#198B48', greenSoft: '#E8F5ED',
   ink: '#123A2E', gray: '#4B5D63', line: '#D6E4EC', paper: '#F7FBFD',
@@ -7,6 +6,16 @@ const C = {
 const TEACHER = 'د. محمد إسماعيل'
 
 export default function FinalReportView({ snapshot, reportNumber, approvedAt }: { snapshot: any, reportNumber: string, approvedAt: string }) {
+  // حماية من أن تكون البيانات فارغة
+  const s = snapshot || {}
+  const studentName = s.student_name || '—'
+  const studentNo = s.student_no || '—'
+  const a10 = Number(s.assignments_10 || 0)
+  const at10 = Number(s.attendance_10 || 0)
+  const m20 = Number(s.midterm_20 || 0)
+  const f60 = Number(s.final_60 || 0)
+  const total = Number(s.total_100 || 0)
+
   return (
     <div dir="rtl" className="print-area" style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '40px', fontFamily: '"Cairo", sans-serif', margin: '0 auto', boxSizing: 'border-box' }}>
       
@@ -22,8 +31,8 @@ export default function FinalReportView({ snapshot, reportNumber, approvedAt }: 
       <h3 style={{ textAlign: 'center', fontSize: '18px', fontWeight: 800, color: C.blue, marginBottom: '15px' }}>كشف الدرجات النهائي</h3>
       
       <div style={{ background: C.paper, padding: '15px', borderRadius: '8px', marginBottom: '20px', border: `1px solid ${C.line}`, display: 'flex', justifyContent: 'space-between' }}>
-        <p style={{ margin: 0, fontSize: '15px' }}><b>اسم الطالب:</b> {snapshot.student_name}</p>
-        <p style={{ margin: 0, fontSize: '15px' }}><b>الرقم الجامعي:</b> {snapshot.student_no}</p>
+        <p style={{ margin: 0, fontSize: '15px' }}><b>اسم الطالب:</b> {studentName}</p>
+        <p style={{ margin: 0, fontSize: '15px' }}><b>الرقم الجامعي:</b> {studentNo}</p>
       </div>
       
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -37,27 +46,27 @@ export default function FinalReportView({ snapshot, reportNumber, approvedAt }: 
         <tbody>
           <tr style={{ textAlign: 'center' }}>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>التكاليف والاختبارات الأسبوعية</td>
-            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{Number(snapshot.assignments_10).toFixed(1)}</td>
+            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{a10.toFixed(1)}</td>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>10</td>
           </tr>
           <tr style={{ textAlign: 'center' }}>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>الحضور والغياب</td>
-            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{Number(snapshot.attendance_10).toFixed(1)}</td>
+            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{at10.toFixed(1)}</td>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>10</td>
           </tr>
           <tr style={{ textAlign: 'center' }}>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>الاختبار النصفي</td>
-            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{Number(snapshot.midterm_20).toFixed(1)}</td>
+            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{m20.toFixed(1)}</td>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>20</td>
           </tr>
           <tr style={{ textAlign: 'center' }}>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px', textAlign: 'right' }}>الاختبار النهائي</td>
-            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{Number(snapshot.final_60).toFixed(1)}</td>
+            <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>{f60.toFixed(1)}</td>
             <td style={{ border: `1px solid ${C.line}`, padding: '10px' }}>60</td>
           </tr>
           <tr style={{ textAlign: 'center', background: C.greenSoft, fontWeight: 800 }}>
             <td style={{ border: `1px solid ${C.line}`, padding: '12px', textAlign: 'right', color: C.green }}>المجموع النهائي</td>
-            <td style={{ border: `1px solid ${C.line}`, padding: '12px', color: C.green }}>{Number(snapshot.total_100).toFixed(1)}</td>
+            <td style={{ border: `1px solid ${C.line}`, padding: '12px', color: C.green }}>{total.toFixed(1)}</td>
             <td style={{ border: `1px solid ${C.line}`, padding: '12px', color: C.green }}>100</td>
           </tr>
         </tbody>
