@@ -31,13 +31,13 @@ interface AttemptRow {
   activity_title: string; week_number: number
   auto_score: number; manual_score: number | null
   total_possible: number; status: string; submitted_at: string
-  exported_at: string | null // ⬅️ إضافة
+  exported_at: string | null
 }
 interface RawAttempt {
   id: string; activity_id: string; student_id: string
   auto_score: number; manual_score: number | null
   status: string; submitted_at: string
-  exported_at: string | null // ⬅️ إضافة
+  exported_at: string | null
 }
 interface Question { id: string; type: QType; text: string; score: number }
 interface Option { id: string; question_id: string; label: string; text: string; position: number }
@@ -112,7 +112,6 @@ export default function GradesTab() {
 
     const [wRes, att, rq] = await Promise.all([
       supabase.from('weeks').select('id,number,title').order('number'),
-      // ⬇️ إضافة exported_at
       supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at,exported_at').order('submitted_at', { ascending: false }),
       supabase.from('retake_requests').select('id,activity_id,student_id,attempt_id,reason,created_at,status').eq('status', 'pending').order('created_at', { ascending: true }),
     ])
@@ -211,7 +210,7 @@ export default function GradesTab() {
         auto_score: a.auto_score, manual_score: a.manual_score,
         total_possible: totalByAttempt[a.id] ?? 0,
         status: a.status, submitted_at: a.submitted_at,
-        exported_at: a.exported_at, // ⬅️ إضافة
+        exported_at: a.exported_at,
       }
     })
     setRows(out)
@@ -397,7 +396,7 @@ export default function GradesTab() {
     await load()
   }
 
-  // ⬇️ دالة نسخ المقالي للتصحيح بالذكاء الاصطناعي (محدثة)
+  // ⬇️ دالة نسخ المقالي للتصحيح بالذكاء الاصطناعي (النسخة النهائية المعدلة)
   async function copyForAI() {
     if (!gradingRow) return
 
@@ -419,6 +418,7 @@ export default function GradesTab() {
       '- اعرض جدولاً ببنود المعايير، والدرجة المستحقة من الدرجة الكاملة، وتعليقاً موجزاً لكل بند.',
       '- اذكر مجموع السؤال والدرجة المقترحة، وبيّن ما إذا ذكر الطالب المكافأة المتاحة.',
       '- لا تتجاوز المكافأة الدرجة الكاملة للسؤال.',
+      '- إذا وردت الدرجة الحالية المعطاة، فاذكرها في الخلاصة بجانب الدرجة المقترحة، ولا تغيّرها، واجعل الملاحظات التعليمية للطالب بناءً على التقييم الفعلي لا على الدرجة المعطاة.',
       '',
       'وفي الخلاصة:',
       '- اعرض جدولاً بدرجات الأسئلة.',
@@ -428,9 +428,8 @@ export default function GradesTab() {
       'مبادئ التصحيح:',
       '1. قيّم المعنى لا اللفظ؛ فمن أدّى المعنى بعبارة مختلفة استحق الدرجة.',
       '2. لا تكرر الخصم على الخطأ الواحد في أكثر من بند، إلا إذا كان بند آخر مفقوداً.',
-      '3. إذا كانت الإجابة صحيحة لكن الطالب نسبها إلى غير صاحبها أو وضعها في غير موضعها، فاخـصم جزئياً ولا تعطِ صفراً.',
-      '4. لا تتجاوز المكافأة الدرجة الكاملة للسؤال.',
-      '5. لا تخصم على الزيادة الصحيحة التي لم ترد في النموذج.',
+      '3. إذا كانت الإجابة صحيحة لكن الطالب نسبها إلى غير صاحبها أو وضعها في غير موضعها، فاخصم جزئياً ولا تعطِ صفراً.',
+      '4. لا تخصم على الزيادة الصحيحة التي لم ترد في النموذج.',
       '',
       '══════════════════════════════════════════',
       'المرحلة الثانية: ملاحظات الطالب بعد التصحيح',
@@ -465,13 +464,10 @@ export default function GradesTab() {
       'خامساً: الخاتمة',
       'اختم بخلاصة قصيرة لا تزيد على ثلاث نقاط، تتضمن أهم ما ينبغي للطالب مراجعته، مع دعاء أو عبارة تشجيع موجزة.',
       '',
-      'سادساً: الطول',
-      'ليكن نص الطالب موجزاً، وألا يتجاوز صفحة واحدة تقريباً.',
+      'سادساً: الطول والبيانات',
+      'ليكن نص الطالب موجزاً، وألا يتجاوز صفحة واحدة تقريباً. اعتمد في ذلك على البيانات المذكورة في آخر الملف.',
       '',
-      'سابعاً: البيانات المرفقة مع كل تصحيح',
-      '- تاريخ الدرس: [اكتب التاريخ أو اتركه فارغاً]',
-      '- هل أعتمد الدرجة كاملة تشجيعاً؟ [نعم / لا]',
-      '- مستوى الطالب (اختياري): [متميز / متوسط / يحتاج دعماً]',
+      'اكتب نص الطالب في كتلة مستقلة يسهل نسخها، بعد فاصل واضح عن المرحلة الأولى، ولا تضع فيه أي إشارة إلى جداول التقييم.',
     ].join('\n')
 
     let text = `${prompt}\n\n`
@@ -492,6 +488,9 @@ export default function GradesTab() {
       text += `الدرجة الحالية المعطاة: ${score}\n\n`
     })
 
+    text += '══════════════════════════════════════════\n'
+    text += 'بيانات إضافية\n'
+    text += '══════════════════════════════════════════\n'
     text += 'تاريخ الدرس: [أدخل التاريخ أو اتركه فارغاً]\n'
     text += 'هل أعتمد الدرجة كاملة تشجيعاً؟ [نعم / لا]\n'
     text += 'مستوى الطالب (اختياري): [متميز / متوسط / يحتاج دعماً]'
@@ -500,9 +499,9 @@ export default function GradesTab() {
       await navigator.clipboard.writeText(text)
       setSuccess('📋 تم نسخ الأسئلة المقالية وبياناتها وقالب التصحيح. الصقها في أداة الذكاء الاصطناعي.')
       
-      // ⬇️ التغيير البصري للزر
+      // التغيير البصري للزر
       setCopied(true)
-      setTimeout(() => setCopied(false), 3000) // يعود لطبيعته بعد 3 ثواني
+      setTimeout(() => setCopied(false), 3000)
       
     } catch (error) {
       setError('تعذر النسخ إلى الحافظة. تحقق من إذن الحافظة في المتصفح ثم أعد المحاولة.')
@@ -671,7 +670,6 @@ export default function GradesTab() {
                       <td className="p-3">{i + 1}</td>
                       <td className="p-3 text-base font-semibold text-ink">
                         {r.student_name}
-                        {/* ⬇️ شارة التصدير */}
                         {r.exported_at && (
                           <span className="ms-2 inline-block rounded bg-error-soft px-2 py-0.5 text-[10px] font-bold text-error ring-1 ring-error/20" title="قام الطالب بتصدير الأسئلة">
                             ⚠️ صَدَّر
@@ -727,7 +725,6 @@ export default function GradesTab() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {/* ⬇️ زر نسخ للتصحيح بالذكاء الاصطناعي (تفاعلي) */}
               <button 
                 onClick={() => void copyForAI()} 
                 className={`rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${copied ? 'bg-secondary' : 'bg-accent hover:bg-accent/90'}`}

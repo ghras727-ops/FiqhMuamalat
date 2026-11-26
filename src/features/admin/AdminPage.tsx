@@ -7,7 +7,7 @@ import PostsTab from './PostsTab'
 import QuizSetsTab from './QuizSetsTab'
 import ReportsTab from './ReportsTab'
 import StudentsTab from './StudentsTab'
-import TablesTab from './TablesTab'
+// مخفي مؤقتاً (الملف محفوظ للاسترجاع): import TablesTab from './TablesTab'
 import WeeksTab from './WeeksTab'
 import AssignmentsTab from './AssignmentsTab'
 import AdminMessagesTab from './AdminMessagesTab'
@@ -24,11 +24,11 @@ const TABS: ShellTab[] = [
   { key: 'assignments', label: 'التكاليف' },
   { key: 'messages', label: 'المراسلة' },
   { key: 'bank', label: 'بنك الأسئلة' },
-  { key: 'grades', label: 'الدرجات' },
+  { key: 'grades', label: 'التصحيح' },
   { key: 'reports', label: 'التقارير' },
   { key: 'final', label: 'النتائج النهائية' }, // ⬅️ التبويب الجديد
   { key: 'practice', label: 'الاختبارات التدريبية' },
-  { key: 'db', label: 'الجداول' },
+  // { key: 'db', label: 'الجداول' },
 ]
 
 export default function AdminPage() {
@@ -52,7 +52,7 @@ export default function AdminPage() {
     { key: 'reports', node: <ReportsTab /> },
     { key: 'final', node: <FinalGradesTab /> }, // ⬅️ المكون الجديد
     { key: 'practice', node: <AdminPracticeExamsTab /> },
-    { key: 'db', node: <TablesTab /> },
+    // { key: 'db', node: <TablesTab /> },
   ]
 
   return (

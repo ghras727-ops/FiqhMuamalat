@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
@@ -169,7 +169,7 @@ export default function HomeTab() {
         ) : (
           <>
             <p className="mt-2 text-sm text-ink-muted">
-              اضغط «تصحيح» للانتقال إلى تبويب الدرجات وفتح المحاولة.
+              اضغط «تصحيح» للانتقال إلى تبويب التصحيح وفتح المحاولة.
             </p>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
@@ -209,7 +209,7 @@ export default function HomeTab() {
       <section className={card}>
         <h3 className="text-lg font-bold text-primary">🔗 إجراءات سريعة</h3>
         <p className="mt-1 text-sm text-ink-muted">
-          لتصحيح الإجابات المقالية، انتقل إلى تبويب «الدرجات» ثم اضغط «تصحيح» بجانب أي طالب.
+          لتصحيح الإجابات المقالية، انتقل إلى تبويب «التصحيح» ثم اضغط «تصحيح» بجانب أي طالب.
         </p>
       </section>
     </div>
