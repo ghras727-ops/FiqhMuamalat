@@ -4,6 +4,7 @@ import { useAuth } from '../app/auth-context'
 export interface ShellTab {
   key: string
   label: string
+  group?: string
 }
 
 interface Props {
@@ -61,27 +62,65 @@ export default function AppShell({ tabs, current, onChange, children }: Props) {
 
         {tabs && tabs.length > 0 && (
           <nav className="mx-auto max-w-6xl overflow-x-auto px-4" aria-label="التبويبات">
-            <ul className="flex gap-1">
-              {tabs.map((t) => {
-                const active = t.key === current
-                return (
-                  <li key={t.key}>
-                    <button
-                      type="button"
-                      onClick={() => onChange?.(t.key)}
-                      aria-current={active ? 'page' : undefined}
-                      className={`whitespace-nowrap border-b-4 px-4 py-3 text-base transition ${
-                        active
-                          ? 'border-primary font-bold text-primary'
-                          : 'border-transparent text-ink-muted hover:text-primary'
-                      }`}
+            {tabs.some((t) => t.group) ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2">
+                {Array.from(new Set(tabs.map((t) => t.group ?? ''))).map((grp, gi) => {
+                  const items = tabs.filter((t) => (t.group ?? '') === grp)
+                  return (
+                    <div
+                      key={grp || gi}
+                      className={`flex items-center gap-1 ${gi > 0 ? 'border-s border-light-blue ps-3' : ''}`}
                     >
-                      {t.label}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
+                      {grp && (
+                        <span className="me-1 rounded bg-primary-soft/60 px-2 py-0.5 text-[11px] font-bold text-primary">
+                          {grp}
+                        </span>
+                      )}
+                      {items.map((t) => {
+                        const active = t.key === current
+                        return (
+                          <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => onChange?.(t.key)}
+                            aria-current={active ? 'page' : undefined}
+                            className={`whitespace-nowrap rounded-xl px-3 py-1.5 text-sm transition ${
+                              active
+                                ? 'bg-primary font-bold text-white shadow-sm'
+                                : 'text-ink-muted hover:bg-primary-soft/50 hover:text-primary'
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <ul className="flex gap-1">
+                {tabs.map((t) => {
+                  const active = t.key === current
+                  return (
+                    <li key={t.key}>
+                      <button
+                        type="button"
+                        onClick={() => onChange?.(t.key)}
+                        aria-current={active ? 'page' : undefined}
+                        className={`whitespace-nowrap border-b-4 px-4 py-3 text-base transition ${
+                          active
+                            ? 'border-primary font-bold text-primary'
+                            : 'border-transparent text-ink-muted hover:text-primary'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </nav>
         )}
       </header>
