@@ -23,6 +23,7 @@ interface StudentGrade {
   midterm_20: number | null
   final_60: number | null
   total_100: number
+  is_test?: boolean
 }
 
 export default function FinalGradesTab() {
@@ -44,7 +45,7 @@ export default function FinalGradesTab() {
 
     const { data: grades, error: gErr } = await supabase
       .from('final_grades')
-      .select('*, profiles(full_name, student_no)')
+      .select('*, profiles(full_name, student_no, is_test)')
       .order('profiles(student_no)')
 
     if (gErr) { setError(gErr.message); setLoading(false); return }
@@ -60,7 +61,8 @@ export default function FinalGradesTab() {
         midterm_raw_60: g.midterm_raw_60,
         midterm_20: calcM20,
         final_60: g.final_60,
-        total_100: g.total_100 || 0
+        total_100: g.total_100 || 0,
+        is_test: !!g.profiles?.is_test
       }
     })
     setData(formatted)
@@ -190,7 +192,7 @@ export default function FinalGradesTab() {
               {data.map(d => (
                 <tr key={d.student_id} className="border-b border-light-blue/50 hover:bg-bg">
                   <td className="p-3 text-start">
-                    <div className="font-bold text-ink">{d.full_name}</div>
+                    <div className="font-bold text-ink">{d.full_name}{d.is_test && <span className="ms-2 rounded bg-warning-soft px-1.5 py-0.5 text-[11px] font-bold text-ink ring-1 ring-warning">🧪 تجريبي</span>}</div>
                     <div className="text-xs text-ink-muted font-mono">{d.student_no}</div>
                   </td>
                   <td className="p-3 font-semibold text-primary">{d.assignments_10.toFixed(1)}</td>
@@ -259,7 +261,7 @@ export default function FinalGradesTab() {
                         </tr>
                       </thead>
                       <tbody>
-                        {data.map(d => (
+                        {data.filter(d => !d.is_test).map(d => (
                           <tr key={d.student_id} style={{ textAlign: 'center' }}>
                             <td style={{ border: `1px solid ${C.line}`, padding: '6px', textAlign: 'right' }}>{d.full_name}</td>
                             <td style={{ border: `1px solid ${C.line}`, padding: '6px' }}>{d.assignments_10.toFixed(1)}</td>

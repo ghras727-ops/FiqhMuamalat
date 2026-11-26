@@ -12,7 +12,7 @@ const btnSuccess = 'rounded-xl bg-secondary px-5 py-2.5 text-base font-semibold 
 const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink'
 const th = 'p-3 text-start text-ink-muted'
 
-interface Student { id: string; full_name: string; student_no: string | null }
+interface Student { id: string; full_name: string; student_no: string | null; is_test?: boolean }
 interface Week { id: string; number: number; title: string }
 interface Activity { id: string; title: string; week_id: string }
 interface AttemptRaw {
@@ -94,7 +94,7 @@ export default function ReportsTab() {
     setError(null)
 
     const [stRes, wkRes, acRes, atRes] = await Promise.all([
-      supabase.from('profiles').select('id,full_name,student_no').eq('role', 'student').order('student_no', { ascending: true }),
+      supabase.from('profiles').select('id,full_name,student_no,is_test').eq('role', 'student').order('student_no', { ascending: true }),
       supabase.from('weeks').select('id,number,title').order('number'),
       supabase.from('activities').select('id,title,week_id'),
       supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at'),
@@ -380,7 +380,7 @@ export default function ReportsTab() {
         {selected && (
           <>
             <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-primary-soft/40 p-3 text-sm">
-              <span className="rounded-lg bg-primary-soft px-3 py-1 font-semibold text-primary">{selected.full_name}</span>
+              <span className="rounded-lg bg-primary-soft px-3 py-1 font-semibold text-primary">{selected.full_name}{selected.is_test && <span className="ms-2 rounded bg-warning-soft px-1.5 py-0.5 text-[11px] font-bold text-ink ring-1 ring-warning">🧪 تجريبي</span>}</span>
               {selected.student_no && <span className="rounded-lg bg-bg px-3 py-1 font-mono text-ink-muted" dir="ltr">{selected.student_no}</span>}
               <span className="text-ink-muted">— {studentRows.filter((r) => r.has_attempt).length} أسبوع بمحاولة</span>
             </div>

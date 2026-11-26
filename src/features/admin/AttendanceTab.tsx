@@ -9,7 +9,7 @@ const btnSuccess = 'rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text
 const input = 'mt-1 w-full rounded-xl border border-light-blue bg-white p-3 text-base text-ink'
 
 interface Week { id: string; number: number; title: string }
-interface Student { id: string; full_name: string; student_no: string | null }
+interface Student { id: string; full_name: string; student_no: string | null; is_test?: boolean }
 type AttStatus = 'present' | 'absent' | 'excused'
 interface AttRow { student_id: string; status: AttStatus }
 
@@ -36,7 +36,7 @@ export default function AttendanceTab() {
 
     const [wRes, sRes] = await Promise.all([
       supabase.from('weeks').select('id,number,title').order('number'),
-      supabase.from('profiles').select('id,full_name,student_no').eq('role', 'student').eq('active', true).order('student_no'),
+      supabase.from('profiles').select('id,full_name,student_no,is_test').eq('role', 'student').eq('active', true).order('student_no'),
     ])
 
     if (wRes.error || sRes.error) {
@@ -229,7 +229,7 @@ export default function AttendanceTab() {
                 return (
                   <tr key={s.id} className="border-b border-light-blue/50 hover:bg-bg">
                     <td className="p-3">{i + 1}</td>
-                    <td className="p-3 text-base font-semibold text-ink">{s.full_name}</td>
+                    <td className="p-3 text-base font-semibold text-ink">{s.full_name}{s.is_test && <span className="ms-2 rounded bg-warning-soft px-1.5 py-0.5 text-[11px] font-bold text-ink ring-1 ring-warning">🧪 تجريبي</span>}</td>
                     <td className="p-3 font-mono text-xs text-ink-muted" dir="ltr">{s.student_no ?? '—'}</td>
                     <td className="p-3">
                       <div className="flex flex-wrap justify-center gap-1.5">

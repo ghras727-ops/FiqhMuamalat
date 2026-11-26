@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
 interface StudentRow {
@@ -7,6 +7,7 @@ interface StudentRow {
   student_no: string | null
   university_no: string | null
   active: boolean
+  is_test?: boolean
 }
 
 interface CreatedRow {
@@ -48,7 +49,7 @@ export default function StudentsTab() {
     setLoading(true)
     const { data, error: err } = await supabase
       .from('profiles')
-      .select('id, full_name, student_no, university_no, active')
+      .select('id, full_name, student_no, university_no, active, is_test')
       .eq('role', 'student')
       .order('student_no', { ascending: true })
     if (err) setError('تعذّر تحميل قائمة الطلاب.')
@@ -303,7 +304,7 @@ export default function StudentsTab() {
                         </>
                       ) : (
                         <>
-                          <td className="p-2">{r.full_name}</td>
+                          <td className="p-2">{r.full_name}{r.is_test && <span className="ms-2 rounded bg-warning-soft px-1.5 py-0.5 text-[11px] font-bold text-ink ring-1 ring-warning">🧪 تجريبي</span>}</td>
                           <td className="p-2 font-mono" dir="ltr">{r.student_no ?? '—'}</td>
                           <td className="p-2 font-mono text-xs" dir="ltr">{r.university_no ?? '—'}</td>
                           <td className={statusClass(r.active)}>

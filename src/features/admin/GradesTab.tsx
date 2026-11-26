@@ -30,7 +30,7 @@ interface AttemptRow {
   student_name: string; student_no: string | null
   activity_title: string; week_number: number
   auto_score: number; manual_score: number | null
-  total_possible: number; status: string; submitted_at: string
+  total_possible: number; status: string; submitted_at: string; is_test?: boolean
   exported_at: string | null
 }
 interface RawAttempt {
@@ -128,11 +128,11 @@ export default function GradesTab() {
     const activityIds = Array.from(new Set([...attempts.map((a) => a.activity_id), ...reqs.map((r) => r.activity_id)]))
     const attemptIds = attempts.map(a => a.id)
 
-    const nameMap: Record<string, { name: string; no: string | null }> = {}
+    const nameMap: Record<string, { name: string; no: string | null; is_test?: boolean }> = {}
     if (studentIds.length > 0) {
-      const pr = await supabase.from('profiles').select('id,full_name,student_no').in('id', studentIds)
-      for (const p of (pr.data ?? []) as { id: string; full_name: string; student_no: string | null }[]) {
-        nameMap[p.id] = { name: p.full_name, no: p.student_no }
+      const pr = await supabase.from('profiles').select('id,full_name,student_no,is_test').in('id', studentIds)
+      for (const p of (pr.data ?? []) as { id: string; full_name: string; student_no: string | null; is_test?: boolean }[]) {
+        nameMap[p.id] = { name: p.full_name, no: p.student_no, is_test: p.is_test }
       }
     }
 
@@ -208,7 +208,7 @@ export default function GradesTab() {
         activity_title: act?.title ?? '—',
         week_number: act ? (weekMap[act.week_id] ?? 0) : 0,
         auto_score: a.auto_score, manual_score: a.manual_score,
-        total_possible: totalByAttempt[a.id] ?? 0,
+        total_possible: totalByAttempt[a.id] ?? 0, is_test: info?.is_test,
         status: a.status, submitted_at: a.submitted_at,
         exported_at: a.exported_at,
       }
@@ -536,7 +536,7 @@ export default function GradesTab() {
   return (
     <div className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
-        <h2 className="text-3xl font-bold">الدرجات</h2>
+        <h2 className="text-3xl font-bold">التصحيح</h2>
         <p className="mt-1 text-base text-white/85">نتائج الطلاب موزّعة حسب الأسبوع.</p>
       </section>
 
@@ -670,7 +670,7 @@ export default function GradesTab() {
                     <tr key={r.id} className="border-b border-light-blue/50 hover:bg-bg">
                       <td className="p-3">{i + 1}</td>
                       <td className="p-3 text-base font-semibold text-ink">
-                        {r.student_name}
+                        {r.student_name}{r.is_test && <span className="ms-2 rounded bg-warning-soft px-1.5 py-0.5 text-[10px] font-bold text-ink ring-1 ring-warning">🧪 تجريبي</span>}
                         {r.exported_at && (
                           <span className="ms-2 inline-block rounded bg-error-soft px-2 py-0.5 text-[10px] font-bold text-error ring-1 ring-error/20" title="قام الطالب بتصدير الأسئلة">
                             ⚠️ صَدَّر
