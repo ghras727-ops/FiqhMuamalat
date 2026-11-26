@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../app/auth-context'
+import { MESSAGES_READ_EVENT } from './useUnreadStudentMessages'
 
 const BUCKET = 'platform-files'
 
@@ -89,22 +90,42 @@ export default function StudentMessagesTab() {
     }
     const rows = res.rows.filter((m) => !m.is_deleted)
 
-    // الخاصة غير المقروءة فقط؛ التعميم (recipient_id = null) مشترك بين الجميع فلا يُحدَّث read_at له
-    const unreadIds = rows.filter((m) => m.recipient_id === meId && !m.read_at).map((m) => m.id)
-    setNewIds(new Set(unreadIds))
+    // التعميمات: قراءتها تُسجَّل لكل طالب في message_reads (read_at مشترك فلا يصلح لها)
+    const readRes = await supabase.from('message_reads').select('message_id').eq('student_id', meId)
+    const readsOk = !readRes.error
+    const readIds = new Set(((readRes.data ?? []) as { message_id: string }[]).map((r) => r.message_id))
+
+    const unreadPrivate = rows.filter((m) => m.recipient_id === meId && !m.read_at).map((m) => m.id)
+    const unreadBroadcast = readsOk
+      ? rows.filter((m) => m.recipient_id === null && !readIds.has(m.id)).map((m) => m.id)
+      : []
+
+    setNewIds(new Set([...unreadPrivate, ...unreadBroadcast]))
     setMessages(rows)
     setLoading(false)
 
-    if (unreadIds.length > 0) {
+    if (unreadPrivate.length > 0) {
       const now = new Date().toISOString()
       const { error } = await supabase
         .from('messages')
         .update({ read_at: now })
-        .in('id', unreadIds)
+        .in('id', unreadPrivate)
         .is('read_at', null)
       if (error) notify('error', `تعذّر تحديث حالة القراءة: ${error.message}`)
-      else setMessages((prev) => prev.map((m) => (unreadIds.includes(m.id) ? { ...m, read_at: now } : m)))
+      else setMessages((prev) => prev.map((m) => (unreadPrivate.includes(m.id) ? { ...m, read_at: now } : m)))
     }
+
+    if (unreadBroadcast.length > 0) {
+      const { error } = await supabase
+        .from('message_reads')
+        .upsert(
+          unreadBroadcast.map((id) => ({ message_id: id, student_id: meId })),
+          { onConflict: 'message_id,student_id', ignoreDuplicates: true },
+        )
+      if (error) notify('error', `تعذّر تسجيل قراءة التعميمات: ${error.message}`)
+    }
+
+    window.dispatchEvent(new Event(MESSAGES_READ_EVENT)) // تحديث الشارة الحمراء على التبويب
   }, [meId, notify])
 
   useEffect(() => {

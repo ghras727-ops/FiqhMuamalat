@@ -13,6 +13,8 @@ import AssignmentsTab from './AssignmentsTab'
 import AdminMessagesTab from './AdminMessagesTab'
 import FinalGradesTab from './FinalGradesTab' // ⬅️ التبويب الجديد
 
+import AdminPracticeExamsTab from './AdminPracticeExamsTab'
+
 const TABS: ShellTab[] = [
   { key: 'home', label: 'الرئيسة' },
   { key: 'posts', label: 'المنشورات' },
@@ -25,6 +27,7 @@ const TABS: ShellTab[] = [
   { key: 'grades', label: 'الدرجات' },
   { key: 'reports', label: 'التقارير' },
   { key: 'final', label: 'النتائج النهائية' }, // ⬅️ التبويب الجديد
+  { key: 'practice', label: 'الاختبارات التدريبية' },
   { key: 'db', label: 'الجداول' },
 ]
 
@@ -48,6 +51,7 @@ export default function AdminPage() {
     { key: 'grades', node: <GradesTab /> },
     { key: 'reports', node: <ReportsTab /> },
     { key: 'final', node: <FinalGradesTab /> }, // ⬅️ المكون الجديد
+    { key: 'practice', node: <AdminPracticeExamsTab /> },
     { key: 'db', node: <TablesTab /> },
   ]
 
