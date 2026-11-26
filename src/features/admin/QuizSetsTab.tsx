@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
@@ -420,7 +420,7 @@ export default function QuizSetsTab() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold">بنك الأسئلة</h2>
-            <p className="mt-1 text-base text-white/85">إدارة الأسئلة، عرض نتائج الطلاب، والتصحيح اليدوي.</p>
+            <p className="mt-1 text-base text-white/85">إدارة أسئلة الأنشطة، فتحها للطلاب، ونشر الصدارة (التصحيح في تبويب «التصحيح»).</p>
           </div>
           {selAct && (
             <div className="flex flex-wrap gap-2">
@@ -473,6 +473,8 @@ export default function QuizSetsTab() {
                 })}
               </select>
 
+              {/* مخفي: تم توحيد التصحيح في تبويب «التصحيح» (GradesTab) — الكود محفوظ للاسترجاع */}
+              {false && (
               <div className="inline-flex rounded-xl bg-white/15 p-1 ring-1 ring-white/20">
                 <button
                   className={(view === 'questions' ? 'bg-white text-primary shadow-sm' : 'text-white') + ' rounded-lg px-4 py-1.5 text-sm font-semibold transition'}
@@ -483,6 +485,7 @@ export default function QuizSetsTab() {
                   onClick={() => setView('results')}
                 >النتائج</button>
               </div>
+              )}
 
               {view === 'questions' && (
                 <button
