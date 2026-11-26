@@ -25,7 +25,7 @@ const TABS: ShellTab[] = [
   { key: 'attendance', label: 'الحضور والغياب', group: 'الطلاب' },
   { key: 'final', label: 'النتائج النهائية', group: 'النتائج' },
   { key: 'reports', label: 'التقارير', group: 'النتائج' },
-  { key: 'comm', label: 'التواصل', group: 'التواصل' },
+  { key: 'comm', label: 'التواصل', group: 'المتابعة' }
 ]
 
 function CommHub() {

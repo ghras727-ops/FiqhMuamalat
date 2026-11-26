@@ -21,6 +21,7 @@ interface PendingRow {
   question_score: number
   student_name: string
   student_no: string | null
+  is_test: boolean
   activity_title: string
   week_number: number
   attempt_id: string
@@ -61,10 +62,10 @@ export default function HomeTab() {
       supabase.from('attempts').select('id'),
     ])
 
-    // المقالي بانتظار التصحيح
+    // المقالي بانتظار التصحيح (مقتصر على المحاولات المُسلَّمة فعلياً)
     const anRes = await supabase
       .from('answers')
-      .select('id, question_id, attempt_id, text_answer, awarded_score, questions(type, text, score), attempts(submitted_at, student_id, activity_id, profiles(full_name, student_no), activities(title, week_id, weeks(number)))')
+      .select('id, question_id, attempt_id, text_answer, awarded_score, questions(type, text, score), attempts(status, submitted_at, student_id, activity_id, profiles(full_name, student_no, is_test), activities(title, week_id, weeks(number)))')
       .is('awarded_score', null)
       .not('text_answer', 'is', null)
 
@@ -74,15 +75,23 @@ export default function HomeTab() {
       return
     }
 
-    let pendingList: PendingRow[] = []
+    let allPending: PendingRow[] = []
     if (!anRes.error && anRes.data) {
       type AnyRec = Record<string, unknown>
       const rows = anRes.data as unknown as AnyRec[]
-      pendingList = rows
+      allPending = rows
         .filter((r) => {
           const q = r.questions as AnyRec | null
           const t = q?.type as string | undefined
-          return t === 'essay_smart' || t === 'essay_reasoning'
+          if (t !== 'essay_smart' && t !== 'essay_reasoning') return false
+
+          const at = r.attempts as AnyRec | null
+          const status = at?.status as string | undefined
+          const submittedAt = at?.submitted_at as string | null | undefined
+          const isSubmittedStatus = status === 'submitted' || status === 'graded'
+          const hasSubmittedAt = typeof submittedAt === 'string' && submittedAt.trim().length > 0
+
+          return isSubmittedStatus && hasSubmittedAt
         })
         .map((r) => {
           const q = (r.questions ?? {}) as AnyRec
@@ -96,13 +105,14 @@ export default function HomeTab() {
             question_score: (q.score as number) ?? 0,
             student_name: (prof.full_name as string) ?? '—',
             student_no: (prof.student_no as string | null) ?? null,
+            is_test: Boolean(prof.is_test),
             activity_title: (act.title as string) ?? '—',
             week_number: (wk.number as number) ?? 0,
             attempt_id: r.attempt_id as string,
             submitted_at: (at.submitted_at as string) ?? '',
           }
         })
-        .slice(0, 15)
+        .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
     }
 
     setStats({
@@ -112,9 +122,9 @@ export default function HomeTab() {
       materials: ((msRes.data ?? []) as unknown[]).length,
       questions: ((qRes.data ?? []) as unknown[]).length,
       attempts: ((atRes.data ?? []) as unknown[]).length,
-      pendingEssays: pendingList.length,
+      pendingEssays: allPending.length,
     })
-    setPending(pendingList)
+    setPending(allPending.slice(0, 15))
     setLoading(false)
   }, [])
 
@@ -157,7 +167,7 @@ export default function HomeTab() {
       <section className={card}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-xl font-bold text-primary">
-            📝 بانتظار تصحيحك ({pending.length})
+            📝 بانتظار تصحيحك ({stats.pendingEssays})
           </h3>
           <button className={btnOutline} onClick={() => void load()}>تحديث</button>
         </div>
@@ -187,7 +197,14 @@ export default function HomeTab() {
                 <tbody>
                   {pending.map((p) => (
                     <tr key={p.answer_id} className="border-b border-light-blue/50 align-top hover:bg-bg">
-                      <td className="p-3 text-base font-semibold text-ink">{p.student_name}</td>
+                      <td className="p-3 text-base font-semibold text-ink">
+                        {p.student_name}
+                        {p.is_test && (
+                          <span className="ms-2 inline-block rounded-md bg-warning-soft px-1.5 py-0.5 text-xs font-semibold text-ink ring-1 ring-warning">
+                            🧪 تجريبي
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3 font-mono text-xs text-ink-muted" dir="ltr">{p.student_no ?? '—'}</td>
                       <td className="p-3">الأسبوع {p.week_number}</td>
                       <td className="p-3">{p.activity_title}</td>
