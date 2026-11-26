@@ -11,10 +11,20 @@ type Row = {
   attempt_no: number; attempts_total: number; score: number; max_score: number; created_at: string;
 };
 type BankQ = { id: string; q_text: string; q_type: string; q_score: number };
+type PExam = {
+  id: string; title: string; description: string | null; max_score: number; is_published: boolean;
+  practice_exam_questions: { count: number }[];
+};
+type PItem = {
+  id: string; text: string; type: 'mcq' | 'tf' | 'essay'; options: { id: string; text: string }[];
+  correct_option_id: string | null; correct_tf: boolean | null; model_answer: string | null;
+};
 const TYPE_LABEL: Record<string, string> = { mcq: 'اختيار', tf: 'صح/خطأ', essay: 'مقالي' };
 
 export default function AdminPracticeExamsTab() {
-  const [view, setView] = useState<'report' | 'new'>('report');
+  const [view, setView] = useState<'exams' | 'report' | 'new'>('exams');
+  const [exams, setExams] = useState<PExam[]>([]);
+  const [preview, setPreview] = useState<{ title: string; items: PItem[] } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [filter, setFilter] = useState('');
   const [bank, setBank] = useState<BankQ[]>([]);
@@ -29,7 +39,28 @@ export default function AdminPracticeExamsTab() {
     const { data } = await sb.rpc('practice_attempts_report');
     setRows((data as Row[]) ?? []);
   }
-  useEffect(() => { loadReport(); }, []);
+  async function loadExams() {
+    const { data } = await sb.from('practice_exams').select('*, practice_exam_questions(count)')
+      .order('created_at', { ascending: false });
+    setExams((data as PExam[]) ?? []);
+  }
+  async function setPublished(e: PExam, v: boolean) {
+    const { error } = await sb.from('practice_exams').update({ is_published: v }).eq('id', e.id);
+    if (error) return setMsg(error.message);
+    setMsg(v ? 'تم نشر الاختبار للطلاب ✓' : 'تم إغلاق الاختبار عن الطلاب'); loadExams();
+  }
+  async function removeExam(e: PExam) {
+    if (!window.confirm('حذف الاختبار «' + e.title + '» مع كل محاولات الطلاب فيه؟ لا يمكن التراجع.')) return;
+    const { error } = await sb.from('practice_exams').delete().eq('id', e.id);
+    if (error) return setMsg(error.message);
+    loadExams(); loadReport();
+  }
+  async function openPreview(e: PExam) {
+    const { data, error } = await sb.rpc('admin_preview_practice_exam', { p_exam_id: e.id });
+    if (error) return setMsg(error.message);
+    setPreview({ title: e.title, items: (data as PItem[]) ?? [] });
+  }
+  useEffect(() => { loadReport(); loadExams(); }, []);
   useEffect(() => {
     if (view === 'new' && bank.length === 0)
       sb.rpc('list_question_bank').then(({ data }) => setBank((data as BankQ[]) ?? []));
@@ -47,7 +78,7 @@ export default function AdminPracticeExamsTab() {
     if (!title.trim() || picked.length === 0) return setMsg('أدخل العنوان واختر سؤالاً واحداً على الأقل.');
     setSaving(true); setMsg('');
     const { data: exam, error } = await sb.from('practice_exams')
-      .insert({ title: title.trim(), description: desc.trim() || null, max_score: maxScore })
+      .insert({ title: title.trim(), description: desc.trim() || null, max_score: maxScore, is_published: false })
       .select('id').single();
     if (error || !exam) { setSaving(false); return setMsg(error?.message ?? 'تعذر الحفظ'); }
     const links = picked.map((question_id, i) => ({ exam_id: exam.id, question_id, sort_order: i }));
@@ -55,7 +86,7 @@ export default function AdminPracticeExamsTab() {
     setSaving(false);
     if (e2) return setMsg(e2.message);
     setTitle(''); setDesc(''); setPicked([]);
-    setMsg('تم إنشاء الاختبار التدريبي ✓'); setView('report'); loadReport();
+    setMsg('تم إنشاء الاختبار كمسودة. استعرضه ثم انشره للطلاب ✓'); setView('exams'); loadExams();
   }
 
   return (
@@ -63,6 +94,10 @@ export default function AdminPracticeExamsTab() {
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl p-4 text-white" style={{ background: BLUE }}>
         <h2 className="text-xl font-bold">الاختبارات التدريبية</h2>
         <div className="flex gap-2">
+          <button onClick={() => setView('exams')} className="rounded-lg px-3 py-1"
+            style={{ background: view === 'exams' ? '#fff' : 'transparent', color: view === 'exams' ? BLUE : '#fff', border: '1px solid #fff' }}>
+            الاختبارات
+          </button>
           <button onClick={() => setView('report')} className="rounded-lg px-3 py-1"
             style={{ background: view === 'report' ? '#fff' : 'transparent', color: view === 'report' ? BLUE : '#fff', border: '1px solid #fff' }}>
             تقرير المحاولات
@@ -74,6 +109,62 @@ export default function AdminPracticeExamsTab() {
         </div>
       </div>
       {msg && <p className="rounded bg-gray-100 p-2 text-sm">{msg}</p>}
+
+      {view === 'exams' && (
+        <div className="space-y-3">
+          {exams.length === 0 && <p className="text-gray-500">لا توجد اختبارات تدريبية بعد.</p>}
+          {exams.map((e) => (
+            <div key={e.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4">
+              <div>
+                <h3 className="font-bold" style={{ color: BLUE }}>{e.title}</h3>
+                <p className="text-sm text-gray-600">
+                  {e.practice_exam_questions?.[0]?.count ?? 0} سؤال — الدرجة العظمى {e.max_score}
+                </p>
+                <span className="text-xs font-bold" style={{ color: e.is_published ? GREEN : '#b45309' }}>
+                  {e.is_published ? '● متاح للطلاب' : '● مغلق (مسودة) — لا يراه الطلاب'}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => openPreview(e)} className="rounded-lg border px-3 py-1"
+                  style={{ borderColor: BLUE, color: BLUE }}>استعراض</button>
+                <button onClick={() => setPublished(e, !e.is_published)} className="rounded-lg px-3 py-1 text-white"
+                  style={{ background: e.is_published ? '#b45309' : GREEN }}>
+                  {e.is_published ? 'إغلاق عن الطلاب' : 'نشر للطلاب'}
+                </button>
+                <button onClick={() => removeExam(e)} className="rounded-lg border border-red-600 px-3 py-1 text-red-600">حذف</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {preview && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-3">
+          <div dir="rtl" className="mx-auto max-w-3xl space-y-3 rounded-2xl bg-white p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold" style={{ color: BLUE }}>استعراض: {preview.title}</h3>
+              <button onClick={() => setPreview(null)} className="rounded-lg px-3 py-1 text-white" style={{ background: BLUE }}>إغلاق</button>
+            </div>
+            {preview.items.map((it, i) => (
+              <div key={it.id} className="rounded-xl border p-3">
+                <p className="mb-2 font-semibold whitespace-pre-wrap">{i + 1}. {it.text}</p>
+                {it.type === 'mcq' && it.options.map((o) => (
+                  <div key={o.id} className="my-1 rounded border px-2 py-1 text-sm"
+                    style={o.id === it.correct_option_id ? { borderColor: GREEN, background: '#198B4815' } : {}}>
+                    {o.id === it.correct_option_id ? '✓ ' : ''}{o.text}
+                  </div>
+                ))}
+                {it.type === 'tf' && <p className="text-sm" style={{ color: GREEN }}>الصحيح: {it.correct_tf ? 'صح' : 'خطأ'}</p>}
+                {it.model_answer && (
+                  <p className="mt-2 whitespace-pre-wrap rounded bg-gray-50 p-2 text-sm">
+                    <b style={{ color: BLUE }}>{it.type === 'essay' ? 'الإجابة النموذجية: ' : 'التوضيح: '}</b>{it.model_answer}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {view === 'report' && (
         <>
