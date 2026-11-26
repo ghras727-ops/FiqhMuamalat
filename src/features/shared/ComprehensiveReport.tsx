@@ -216,34 +216,42 @@ export default function ComprehensiveReport({ snapshot }: { snapshot: Comprehens
         )}
 
         {options.showAttendance && (
-          <section style={{ marginTop: '16px' }}>
+          <section style={{ marginTop: '12px' }}>
             <SectionTitle>2. سجل الحضور والغياب</SectionTitle>
-            {attendance.length === 0 ? <p style={{ fontSize: '12px', color: C.gray }}>لا يوجد سجل حضور.</p> : (
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, border: `1px solid ${C.line}`, borderRadius: '8px', overflow: 'hidden', fontSize: '12.5px' }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...th, width: '46px', textAlign: 'center' }}>الأسبوع</th>
-                    <th style={{ ...th, textAlign: 'center' }}>الحالة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {attendance.map((a, i) => {
-                    const bg = i % 2 === 1 ? C.paper : 'white'
-                    const st = statusTone(a.status)
-                    return (
-                      <tr key={i} style={{ background: bg }}>
-                        <td style={{ ...td, textAlign: 'center' }}>
-                          <span style={{ display: 'inline-block', width: '24px', height: '24px', lineHeight: '24px', borderRadius: '50%', background: C.blueSoft, color: C.blue, fontWeight: 800, fontSize: '12.5px' }}>{a.week}</span>
-                        </td>
-                        <td style={{ ...td, textAlign: 'center' }}>
-                          <span style={{ display: 'inline-block', padding: '1px 16px', borderRadius: '20px', background: st.bg, color: st.fg, fontSize: '11.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>{statusLabel(a.status)}</span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            )}
+            {attendance.length === 0 ? <p style={{ fontSize: '12px', color: C.gray }}>لا يوجد سجل حضور.</p> : (() => {
+              const half = Math.ceil(attendance.length / 2)
+              const cols = [attendance.slice(0, half), attendance.slice(half)].filter(c => c.length > 0)
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: cols.length > 1 ? '1fr 1fr' : '1fr', gap: '10px', alignItems: 'start' }}>
+                  {cols.map((col, ci) => (
+                    <table key={ci} style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, border: `1px solid ${C.line}`, borderRadius: '8px', overflow: 'hidden', fontSize: '11.5px' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...th, padding: '4px 6px', width: '54px', textAlign: 'center', fontSize: '11px' }}>الأسبوع</th>
+                          <th style={{ ...th, padding: '4px 6px', textAlign: 'center', fontSize: '11px' }}>الحالة</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {col.map((a, i) => {
+                          const bg = i % 2 === 1 ? C.paper : 'white'
+                          const st = statusTone(a.status)
+                          return (
+                            <tr key={a.week} style={{ background: bg }}>
+                              <td style={{ ...td, padding: '3px 6px', height: '24px', textAlign: 'center' }}>
+                                <span style={{ display: 'inline-block', width: '20px', height: '20px', lineHeight: '20px', borderRadius: '50%', background: C.blueSoft, color: C.blue, fontWeight: 800, fontSize: '11px' }}>{a.week}</span>
+                              </td>
+                              <td style={{ ...td, padding: '3px 6px', height: '24px', textAlign: 'center' }}>
+                                <span style={{ display: 'inline-block', padding: '1px 12px', borderRadius: '20px', background: st.bg, color: st.fg, fontSize: '10.5px', fontWeight: 800, whiteSpace: 'nowrap' }}>{statusLabel(a.status)}</span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  ))}
+                </div>
+              )
+            })()}
           </section>
         )}
 

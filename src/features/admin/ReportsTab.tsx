@@ -14,7 +14,7 @@ const th = 'p-3 text-start text-ink-muted'
 
 interface Student { id: string; full_name: string; student_no: string | null; is_test?: boolean }
 interface Week { id: string; number: number; title: string }
-interface Activity { id: string; title: string; week_id: string }
+interface Activity { id: string; title: string; week_id: string; randomize_questions?: boolean }
 interface AttemptRaw {
   id: string; activity_id: string; student_id: string
   auto_score: number; manual_score: number | null
@@ -69,6 +69,7 @@ export default function ReportsTab() {
   const [busy, setBusy] = useState(false)
 
   const [instSnapshot, setInstSnapshot] = useState<InstitutionalSnapshot | null>(null)
+  const [instMode, setInstMode] = useState<'grades' | 'attendance'>('grades')
   const [instFromWeek, setInstFromWeek] = useState(1)
   const [instToWeek, setInstToWeek] = useState(7)
   const [instBusy, setInstBusy] = useState(false)
@@ -96,7 +97,7 @@ export default function ReportsTab() {
     const [stRes, wkRes, acRes, atRes] = await Promise.all([
       supabase.from('profiles').select('id,full_name,student_no,is_test').eq('role', 'student').order('student_no', { ascending: true }),
       supabase.from('weeks').select('id,number,title').order('number'),
-      supabase.from('activities').select('id,title,week_id'),
+      supabase.from('activities').select('id,title,week_id,randomize_questions'),
       supabase.from('attempts').select('id,activity_id,student_id,auto_score,manual_score,status,submitted_at'),
     ])
 
@@ -173,7 +174,9 @@ export default function ReportsTab() {
       
       // ⬇️ تطبيق الخوارزمية المحصنة للدرجة الكاملة
       let total = 60
-      if (attempt) {
+      if (act?.randomize_questions) {
+        total = 60
+      } else if (attempt) {
         if (totalsByAttempt[attempt.id] && totalsByAttempt[attempt.id] > 0) {
           total = totalsByAttempt[attempt.id]
         } else if (act && totalsByActivity[act.id] && totalsByActivity[act.id] > 0) {
@@ -280,7 +283,8 @@ export default function ReportsTab() {
     setSuccess('تم إلغاء التقرير.'); await loadReports()
   }
 
-  async function generateInstitutional() {
+  async function generateInstitutional(mode: 'grades' | 'attendance' = 'grades') {
+    setInstMode(mode)
     if (!supabase) return
     setError(null); setInstBusy(true)
     const { data, error: rpcErr } = await supabase.rpc('institutional_report', { p_from_week: instFromWeek, p_to_week: instToWeek })
@@ -304,7 +308,8 @@ export default function ReportsTab() {
             if (week && week.number >= fromWeek && week.number <= toWeek) {
               // استخدام الدرجة الكاملة المحصنة
               let max = 60
-              if (totalsByAttempt[at.id] && totalsByAttempt[at.id] > 0) max = totalsByAttempt[at.id]
+              if (act?.randomize_questions) max = 60
+              else if (totalsByAttempt[at.id] && totalsByAttempt[at.id] > 0) max = totalsByAttempt[at.id]
               else if (act && totalsByActivity[act.id] && totalsByActivity[act.id] > 0) max = totalsByActivity[act.id]
               
               const score = at.auto_score + (at.manual_score ?? 0)
@@ -363,7 +368,7 @@ export default function ReportsTab() {
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <div><label className="text-sm font-semibold text-ink">من الأسبوع</label><input type="number" min={1} max={16} className={input} value={instFromWeek} onChange={(e) => setInstFromWeek(parseInt(e.target.value, 10) || 1)} /></div>
           <div><label className="text-sm font-semibold text-ink">إلى الأسبوع</label><input type="number" min={1} max={16} className={input} value={instToWeek} onChange={(e) => setInstToWeek(parseInt(e.target.value, 10) || 1)} /></div>
-          <div className="flex items-end"><button className={btn} onClick={() => void generateInstitutional()} disabled={instBusy}>{instBusy ? '...' : '📊 تقرير النتائج المؤسسي'}</button></div>
+          <div className="flex flex-wrap items-end gap-2"><button className={btn} onClick={() => void generateInstitutional('grades')} disabled={instBusy}>{instBusy ? '...' : '📊 تقرير النتائج المؤسسي'}</button><button className={btnSuccess} onClick={() => void generateInstitutional('attendance')} disabled={instBusy}>{instBusy ? '...' : '📋 تقرير الحضور المؤسسي'}</button></div>
         </div>
       </section>
 
@@ -443,8 +448,8 @@ export default function ReportsTab() {
       {instSnapshot && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-2 md:p-6">
           <div className="mx-auto max-w-[900px]">
-            <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg"><div className="text-base font-bold text-primary">📊 التقرير المؤسسي — الأسابيع {instSnapshot.from_week}–{instSnapshot.to_week}</div><div className="flex flex-wrap gap-2"><button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button><button className={btn} onClick={() => setInstSnapshot(null)}>إغلاق</button></div></div>
-            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl"><InstitutionalReport snapshot={instSnapshot} generatedAt={instSnapshot.generated_at} mode="grades" /></div>
+            <div className="no-print sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 shadow-lg"><div className="text-base font-bold text-primary">{instMode === 'attendance' ? '📋 تقرير الحضور المؤسسي' : '📊 تقرير النتائج المؤسسي'} — الأسابيع {instSnapshot.from_week}–{instSnapshot.to_week}</div><div className="flex flex-wrap gap-2"><button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button><button className={btn} onClick={() => setInstSnapshot(null)}>إغلاق</button></div></div>
+            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl"><InstitutionalReport snapshot={instSnapshot} generatedAt={instSnapshot.generated_at} mode={instMode} /></div>
           </div>
         </div>
       )}

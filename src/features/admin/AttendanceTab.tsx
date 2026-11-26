@@ -134,13 +134,7 @@ export default function AttendanceTab() {
               سجّل حضور الطلاب لكل أسبوع — حفظ تلقائي.
             </p>
           </div>
-          <button
-            className="rounded-xl bg-white px-5 py-2.5 text-base font-bold text-primary shadow-md hover:bg-primary-soft disabled:opacity-60"
-            onClick={() => void generateReport()}
-            disabled={instBusy}
-          >
-            {instBusy ? '...' : '📊 تقرير الحضور المؤسسي'}
-          </button>
+          <span className="rounded-xl bg-white/15 px-4 py-2 text-xs font-semibold text-white ring-1 ring-white/25">📊 تقرير الحضور المؤسسي متاح الآن في تبويب «التقارير»</span>
         </div>
       </section>
 
