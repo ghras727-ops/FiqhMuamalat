@@ -79,6 +79,9 @@ export default function ReportsTab() {
   const [compStudentId, setCompStudentId] = useState('')
   const [compOptions, setCompOptions] = useState({ grades: true, attendance: true })
   const [compBusy, setCompBusy] = useState(false)
+  const [compSending, setCompSending] = useState(false)
+  const [compTargetStudentId, setCompTargetStudentId] = useState('')
+  const [compIsExisting, setCompIsExisting] = useState(false)
 
   const [preview, setPreview] = useState<{
     snapshot: ReportSnapshot
@@ -256,6 +259,12 @@ export default function ReportsTab() {
   }
 
   function openExistingReport(r: ExistingReport) {
+    if (r.type === 'comprehensive') {
+      setCompTargetStudentId(r.student_id)
+      setCompIsExisting(true)
+      setCompSnapshot(r.snapshot as unknown as ComprehensiveSnapshot)
+      return
+    }
     setPreview({ snapshot: r.snapshot, reportNumber: r.report_number, approvedAt: r.approved_at, teacherNote: r.teacher_note, mode: 'existing', reportId: r.id })
   }
 
@@ -293,7 +302,25 @@ export default function ReportsTab() {
     setInstSnapshot(data as InstitutionalSnapshot)
   }
 
-  async function generateComprehensiveReport() {
+  async function publishComprehensive(studentId: string, snap: ComprehensiveSnapshot) {
+    if (!supabase) return
+    if (!window.confirm(`إرسال التقرير الشامل مباشرة إلى حساب الطالب: ${snap.student.full_name}؟`)) return
+    setCompSending(true); setError(null); setSuccess(null)
+    const { data: repNo, error: rpcErr } = await supabase.rpc('publish_comprehensive_report', {
+      p_student_id: studentId,
+      p_from_week: snap.from_week,
+      p_to_week: snap.to_week,
+      p_snapshot: snap,
+    })
+    setCompSending(false)
+    if (rpcErr) { setError('تعذّر إرسال التقرير الشامل: ' + rpcErr.message); return }
+    setSuccess(`✓ تم إرسال التقرير الشامل (${repNo ?? ''}) إلى حساب الطالب ${snap.student.full_name} بنجاح.`)
+    setCompSnapshot(null)
+    setShowComprehensive(false)
+    if (selectedId === studentId) await loadReports()
+  }
+
+  async function generateComprehensiveReport(sendDirectly = false) {
     if (!supabase || !compStudentId) return
     setCompBusy(true); setError(null)
     try {
@@ -306,12 +333,10 @@ export default function ReportsTab() {
             const act = activities.find(a => a.id === at.activity_id)
             const week = weeks.find(w => w.id === act?.week_id)
             if (week && week.number >= fromWeek && week.number <= toWeek) {
-              // استخدام الدرجة الكاملة المحصنة
               let max = 60
               if (act?.randomize_questions) max = 60
               else if (totalsByAttempt[at.id] && totalsByAttempt[at.id] > 0) max = totalsByAttempt[at.id]
               else if (act && totalsByActivity[act.id] && totalsByActivity[act.id] > 0) max = totalsByActivity[act.id]
-              
               const score = at.auto_score + (at.manual_score ?? 0)
               grades.push({ week: week.number, title: week.title, score, max, percent: Math.min(100, Math.round((score/max)*100)), status: at.status })
             }
@@ -328,13 +353,20 @@ export default function ReportsTab() {
           }
         }
       }
-      setCompSnapshot({
+      const snap: ComprehensiveSnapshot = {
         student: { full_name: student.full_name, student_no: student.student_no },
         from_week: fromWeek, to_week: toWeek, generated_at: new Date().toISOString(),
         grades: grades.sort((a,b) => a.week - b.week), attendance: attendance.sort((a,b) => a.week - b.week),
         options: { showGrades: compOptions.grades, showAttendance: compOptions.attendance }
-      })
-      setShowComprehensive(false)
+      }
+      if (sendDirectly) {
+        await publishComprehensive(compStudentId, snap)
+      } else {
+        setCompTargetStudentId(compStudentId)
+        setCompIsExisting(false)
+        setCompSnapshot(snap)
+        setShowComprehensive(false)
+      }
     } catch (err: any) { setError(err.message) } finally { setCompBusy(false) }
   }
 
@@ -422,7 +454,7 @@ export default function ReportsTab() {
                 <ul className="mt-2 space-y-2">
                   {activeReports.map((r) => (
                     <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-light-blue bg-white p-3">
-                      <div className="min-w-0 flex-1"><div className="font-semibold text-ink">{r.type === 'weekly' ? `أسبوعي — الأسبوع ${r.from_week_number}` : `تراكمي — الأسابيع ${r.from_week_number} إلى ${r.to_week_number}`}{r.report_number && <span className="ms-2 rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.report_number}</span>}</div><div className="text-xs text-ink-muted">أُصدر {timeAgo(r.approved_at)} {r.seen_at ? ' — ✓ رآه الطالب' : ' — ⏳ لم يره بعد'}</div>{r.teacher_note && <div className="mt-1 text-xs text-ink-muted">ملاحظة: {r.teacher_note}</div>}</div>
+                      <div className="min-w-0 flex-1"><div className="font-semibold text-ink">{r.type === 'weekly' ? `أسبوعي — الأسبوع ${r.from_week_number}` : r.type === 'comprehensive' ? `شامل — الأسابيع ${r.from_week_number} إلى ${r.to_week_number}` : r.type === 'final' ? 'كشف الدرجات النهائي' : `تراكمي — الأسابيع ${r.from_week_number} إلى ${r.to_week_number}`}{r.report_number && <span className="ms-2 rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.report_number}</span>}</div><div className="text-xs text-ink-muted">أُصدر {timeAgo(r.approved_at)} {r.seen_at ? ' — ✓ رآه الطالب' : ' — ⏳ لم يره بعد'}</div>{r.teacher_note && <div className="mt-1 text-xs text-ink-muted">ملاحظة: {r.teacher_note}</div>}</div>
                       <div className="flex flex-wrap gap-2"><button className={btnOutline} onClick={() => openExistingReport(r)} disabled={busy}>عرض</button><button className={btnDanger} onClick={() => void revokeReport(r.id, r.report_number)} disabled={busy}>إلغاء</button></div>
                     </li>
                   ))}
@@ -461,7 +493,7 @@ export default function ReportsTab() {
             <div className="space-y-4">
               <div><label className="text-sm font-semibold">الطالب</label><select className={input} value={compStudentId} onChange={e => setCompStudentId(e.target.value)}><option value="">-- اختر طالباً --</option>{students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}</select></div>
               <div className="flex gap-4 text-sm mt-4"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={compOptions.grades} onChange={e => setCompOptions({...compOptions, grades: e.target.checked})} /> الدرجات</label><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={compOptions.attendance} onChange={e => setCompOptions({...compOptions, attendance: e.target.checked})} /> الحضور والغياب</label></div>
-              <div className="flex gap-2 justify-end mt-6"><button className={btnOutline} onClick={() => setShowComprehensive(false)}>إلغاء</button><button className={btn} onClick={() => void generateComprehensiveReport()} disabled={compBusy || !compStudentId}>{compBusy ? '...' : 'معاينة التقرير'}</button></div>
+              <div className="flex gap-2 justify-end mt-6"><button className={btnOutline} onClick={() => setShowComprehensive(false)}>إلغاء</button><button className={btnOutline} onClick={() => void generateComprehensiveReport(false)} disabled={compBusy || compSending || !compStudentId}>{compBusy ? '...' : 'معاينة التقرير'}</button><button className={btnSuccess} onClick={() => void generateComprehensiveReport(true)} disabled={compBusy || compSending || !compStudentId}>{compSending ? 'جارٍ الإرسال...' : '📤 إرسال للطالب'}</button></div>
             </div>
           </div>
         </div>
@@ -470,7 +502,7 @@ export default function ReportsTab() {
       {compSnapshot && (
         <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/70 p-2 md:p-6 print:bg-white print:p-0">
            <div className="mx-auto max-w-[210mm]">
-             <div className="no-print sticky top-0 z-10 mb-3 flex justify-between rounded-2xl bg-white p-3 shadow-lg"><div className="font-bold text-primary">معاينة التقرير الشامل</div><div className="flex gap-2"><button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button><button className={btnDanger} onClick={() => setCompSnapshot(null)}>إغلاق</button></div></div>
+             <div className="no-print sticky top-0 z-10 mb-3 flex justify-between rounded-2xl bg-white p-3 shadow-lg"><div className="font-bold text-primary">معاينة التقرير الشامل</div><div className="flex flex-wrap gap-2">{!compIsExisting && compTargetStudentId && <button className={btnSuccess} onClick={() => void publishComprehensive(compTargetStudentId, compSnapshot)} disabled={compSending}>{compSending ? 'جارٍ الإرسال...' : '📤 إرسال للطالب'}</button>}<button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button><button className={btnDanger} onClick={() => setCompSnapshot(null)}>إغلاق</button></div></div>
              <div className="bg-white shadow-2xl print:shadow-none"><ComprehensiveReport snapshot={compSnapshot} /></div>
            </div>
         </div>

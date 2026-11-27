@@ -12,6 +12,7 @@ import AppShell, { type ShellTab } from '../../components/AppShell'
 import Tag from '../../components/Tag'
 import WeeklyReport, { type ReportSnapshot } from '../shared/WeeklyReport'
 import FinalReportView from '../shared/FinalReportView'
+import ComprehensiveReport, { type ComprehensiveSnapshot } from '../shared/ComprehensiveReport'
 
 const card = 'rounded-2xl border border-light-blue bg-white p-5 shadow-sm'
 const btn = 'rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60'
@@ -240,7 +241,9 @@ export default function StudentHomePage() {
                               ? `تقرير الأسبوع ${r.from_week_number}` 
                               : r.type === 'final' 
                                 ? `كشف الدرجات النهائي` 
-                                : `تقرير تراكمي — الأسابيع ${r.from_week_number} – ${r.to_week_number}`}
+                                : r.type === 'comprehensive'
+                                  ? `تقرير الأداء الشامل — الأسابيع ${r.from_week_number} – ${r.to_week_number}`
+                                  : `تقرير تراكمي — الأسابيع ${r.from_week_number} – ${r.to_week_number}`}
                           </span>
                           {!r.seen_at && <span className="rounded-full bg-error px-2 py-0.5 text-xs font-bold text-white">جديد</span>}
                           {r.report_number && <span className="rounded bg-bg px-2 py-0.5 font-mono text-xs text-ink-muted" dir="ltr">{r.report_number}</span>}
@@ -291,7 +294,9 @@ export default function StudentHomePage() {
                   ? `تقرير الأسبوع ${viewingReport.from_week_number}`
                   : viewingReport.type === 'final'
                     ? `كشف الدرجات النهائي`
-                    : `تقرير تراكمي — الأسابيع ${viewingReport.from_week_number} – ${viewingReport.to_week_number}`}
+                    : viewingReport.type === 'comprehensive'
+                      ? `تقرير الأداء الشامل — الأسابيع ${viewingReport.from_week_number} – ${viewingReport.to_week_number}`
+                      : `تقرير تراكمي — الأسابيع ${viewingReport.from_week_number} – ${viewingReport.to_week_number}`}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button className={btnOutline} onClick={() => window.print()}>🖨️ طباعة / PDF</button>
@@ -300,7 +305,9 @@ export default function StudentHomePage() {
             </div>
             
             <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
-              {viewingReport.type === 'final' ? (
+              {viewingReport.type === 'comprehensive' ? (
+                <ComprehensiveReport snapshot={viewingReport.snapshot as unknown as ComprehensiveSnapshot} />
+              ) : viewingReport.type === 'final' ? (
                 <FinalReportView
                   snapshot={viewingReport.snapshot as any}
                   reportNumber={viewingReport.report_number || ''}
