@@ -139,3 +139,12 @@
 - الآن (واجهة): أسماء المتفاعلين للأستاذ، حذف ناعم للأستاذ، تثبيت الاستقرار، زر رسالة جديدة للطالب.
 - حزمة C1 (SQL بعد مراجعة المشرف): message_blocks لإيقاف طالب، وallow_replies وallow_reactions وedited_at في messages، وتعديل التريغر، وإخفاء is_deleted عن الطلاب بالسياسة، وحذف تفاعل الطالب لنفسه مسموح دائماً.
 - بعدها: D (التكاليف) ثم E (docx) ثم الرئيسة.
+
+## 22. خلل حيّ (27 نوفمبر 2026) — infinite recursion في سياسة messages
+- ظهر عند إرسال الأستاذ رسالة لطالب: «infinite recursion detected in policy for relation "messages"». يعطّل التواصل. أولوية قصوى قبل C1.
+- المبدأ: لا تستعلم سياسة RLS عن جدولها نفسه. تُكسر الحلقة بدالة SECURITY DEFINER مع search_path فارغ.
+- تسلّم مساعد جديد المهمة بعد تقرير تسليم. حزمة C1 معروضة ولا تُنفَّذ قبل إصلاح الحلقة ومراجعة المشرف.
+- مرجع: التقارير 00126–00130 معتمدة، FIN محفوظة، الحماية في approve_weekly_report مثبتة.
+- **إغلاق خلل الحلقة (27 نوفمبر 2026):** استُبدل الاستعلام الذاتي في messages_insert_policy بدالتي SECURITY DEFINER (can_student_reply_to_message وcan_student_react_to_message بـ search_path = '')، وأُزيلت السياسات المكررة المتعارضة.
+- **التحقق:** نجحت المحاكاة المُلغاة (ROLLBACK) في 6/6 اختبارات (إرسال الأستاذ لطالب، تعميم، إرسال طالب، رد طالب على تعميم، عزل 3 طلاب بـ leaks=0، رفض تفاعل على رسالة مخفية 42501). النسخة الاحتياطية: public.rls_policies_backup_20261127_v3 (17 صفاً).
+- **حالة C1 (SQL):** مكتمل ومُفعَّل في القاعدة (message_blocks، وأعمدة edited_at/llow_replies/llow_reactions، وتريغر 	rg_messages_guard_update_fn متحقق منه). الخطوة التالية: واجهة C1.
