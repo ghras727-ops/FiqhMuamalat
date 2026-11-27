@@ -57,6 +57,14 @@ async function fetchMessages(
 
 const fmt = (iso: string) => new Date(iso).toLocaleString('ar-SA-u-nu-latn')
 
+const normAr = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .trim()
+
 export default function StudentMessagesTab() {
   const { profile } = useAuth()
   const meId = profile?.id
@@ -68,15 +76,14 @@ export default function StudentMessagesTab() {
   const [openCards, setOpenCards] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState<Notice>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
-  // نموذج إرسال رسالة خاصة جديدة للأستاذ (مع صورة/مرفق)
   const [composerOpen, setComposerOpen] = useState(false)
   const [newSubject, setNewSubject] = useState('')
   const [newBody, setNewBody] = useState('')
   const [newFile, setNewFile] = useState<File | null>(null)
   const [newFileKey, setNewFileKey] = useState(0)
 
-  // نموذج الرد على رسالة (مع صورة/مرفق اختياري)
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [replyBody, setReplyBody] = useState('')
   const [replyFile, setReplyFile] = useState<File | null>(null)
@@ -92,7 +99,6 @@ export default function StudentMessagesTab() {
     if (!supabase || !meId) return
     if (!silent) setLoading(true)
 
-    // جلب الرسائل الواردة والتعاميم + رسائل الطالب المرسلة للأستاذ
     const [res, teacherRes] = await Promise.all([
       fetchMessages(supabase, `sender_id.eq.${meId},recipient_id.eq.${meId},recipient_id.is.null`),
       supabase.from('profiles').select('id').eq('role', 'teacher').limit(1).maybeSingle(),
@@ -105,7 +111,6 @@ export default function StudentMessagesTab() {
     }
     const rows = res.rows.filter((m) => !m.is_deleted)
 
-    // تحديد معرّف الأستاذ من profiles أو من أي رسالة مرسلة من الأستاذ
     const tId =
       (teacherRes.data as { id: string } | null)?.id ??
       rows.find((m) => m.sender_id !== meId)?.sender_id ??
@@ -169,6 +174,16 @@ export default function StudentMessagesTab() {
     }
     return map
   }, [reactions])
+
+  const filteredMessages = useMemo(() => {
+    const q = normAr(searchQuery)
+    if (!q) return messages
+    return messages.filter((m) => {
+      const sender = m.sender_id === meId ? 'أنت' : m.profiles_sender?.full_name || 'الأستاذ'
+      const hay = normAr(`${sender} ${m.subject ?? ''} ${m.body}`)
+      return hay.includes(q)
+    })
+  }, [messages, searchQuery, meId])
 
   function toggleCard(id: string) {
     setOpenCards((prev) => {
@@ -380,13 +395,40 @@ export default function StudentMessagesTab() {
       )}
 
       <section className={card}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-bold text-primary">
+            الرسائل ({filteredMessages.length}{searchQuery.trim() ? ` من ${messages.length}` : ''})
+          </h3>
+          <div className="relative">
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="🔍 بحث في الرسائل..."
+              className="w-60 rounded-xl border border-light-blue bg-bg/40 px-3 py-1.5 text-sm text-ink focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-muted hover:text-error"
+                aria-label="مسح البحث"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
         {loading ? (
           <p className="text-sm text-ink-muted">جارٍ التحميل...</p>
-        ) : messages.length === 0 ? (
-          <p className="text-center text-ink-muted">لا توجد رسائل.</p>
+        ) : filteredMessages.length === 0 ? (
+          <p className="py-6 text-center text-sm text-ink-muted">
+            {searchQuery.trim() ? 'لا توجد رسائل مطابقة لبحثك.' : 'لا توجد رسائل.'}
+          </p>
         ) : (
           <ul className="space-y-2.5">
-            {messages.map((m) => {
+            {filteredMessages.map((m) => {
               const isPublic = m.recipient_id === null
               const isMine = m.sender_id === meId
               const isNew = newIds.has(m.id)

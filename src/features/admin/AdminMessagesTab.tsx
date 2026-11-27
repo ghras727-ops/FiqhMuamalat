@@ -63,11 +63,18 @@ async function fetchMessages(
 
 const fmt = (iso: string) => new Date(iso).toLocaleString('ar-SA-u-nu-latn')
 
+const normAr = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .trim()
+
 export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const { profile } = useAuth()
   const meId = profile?.id
 
-  // تثبيت مرجع onRead حتى لا يتسبب تحديث العدّاد كل 15 ثانية في إعادة تحميل الصفحة وقفزها
   const onReadRef = useRef(onRead)
   onReadRef.current = onRead
 
@@ -78,6 +85,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
 
+  const [searchQuery, setSearchQuery] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
   const [to, setTo] = useState<string>('all')
   const [subject, setSubject] = useState('')
@@ -85,7 +93,6 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [fileKey, setFileKey] = useState(0)
 
-  // كل الرسائل مطوية افتراضياً وتُفتح بالنقر
   const [openCards, setOpenCards] = useState<Set<string>>(new Set())
   const [replyTarget, setReplyTarget] = useState<{ rootId: string; studentId: string; studentName: string; subject: string | null } | null>(null)
   const [replyBody, setReplyBody] = useState('')
@@ -149,7 +156,22 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     return map
   }, [reactions])
 
-  // تجميع الردود تحت الرسالة الأصلية + ترتيب السجل بأحدث نشاط (أحدث رسالة أو أحدث رد)
+  const senderLabel = useCallback(
+    (m: Message) =>
+      m.sender_id === meId ? 'أنت' : m.profiles_sender?.full_name || studentName.get(m.sender_id) || 'طالب',
+    [meId, studentName],
+  )
+
+  const targetLabel = useCallback(
+    (m: Message) =>
+      m.recipient_id === null
+        ? 'جميع الطلاب (تعميم)'
+        : m.recipient_id === meId
+          ? 'أنت'
+          : studentName.get(m.recipient_id) || 'طالب',
+    [meId, studentName],
+  )
+
   const threads = useMemo(() => {
     const byId = new Map(messages.map((m) => [m.id, m]))
     const replies = new Map<string, Message[]>()
@@ -176,6 +198,26 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
       })
       .sort((a, b) => b.latestAt.localeCompare(a.latestAt))
   }, [messages, meId])
+
+  // تصفية السجل عند البحث (يبحث في المرسل والمرسل إليه والموضوع والنص والردود)
+  const filteredThreads = useMemo(() => {
+    const q = normAr(searchQuery)
+    if (!q) return threads.map((t) => ({ ...t, autoExpand: false }))
+
+    const matchesMsg = (m: Message) => {
+      const hay = normAr(`${senderLabel(m)} ${targetLabel(m)} ${m.subject ?? ''} ${m.body}`)
+      return hay.includes(q)
+    }
+
+    return threads
+      .map((t) => {
+        const rootMatch = matchesMsg(t.root)
+        const replyMatch = t.replies.some(matchesMsg)
+        if (!rootMatch && !replyMatch) return null
+        return { ...t, autoExpand: replyMatch }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+  }, [threads, searchQuery, senderLabel, targetLabel])
 
   async function markThreadRead(unreadIds: string[]) {
     if (!supabase || unreadIds.length === 0) return
@@ -311,15 +353,6 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
 
   if (!profile || !meId) return null
 
-  const senderLabel = (m: Message) =>
-    m.sender_id === meId ? 'أنت' : m.profiles_sender?.full_name || studentName.get(m.sender_id) || 'طالب'
-  const targetLabel = (m: Message) =>
-    m.recipient_id === null
-      ? 'جميع الطلاب (تعميم)'
-      : m.recipient_id === meId
-        ? 'أنت'
-        : studentName.get(m.recipient_id) || 'طالب'
-
   return (
     <div className="space-y-4">
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-5 text-white shadow-md">
@@ -407,29 +440,54 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
       )}
 
       <section className={card}>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-bold text-primary">سجل المراسلات ({threads.length})</h3>
-          <div className="flex gap-4 text-xs text-ink-muted">
-            <span className="flex items-center gap-1.5">
-              <span className="h-3 w-3 rounded-sm border" style={{ borderColor: GREEN, background: `${GREEN}22` }} />
-              تعميم
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-3 w-3 rounded-sm border border-light-blue bg-white" />
-              خاصة
-            </span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-bold text-primary">
+            سجل المراسلات ({filteredThreads.length}{searchQuery.trim() ? ` من ${threads.length}` : ''})
+          </h3>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative">
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="🔍 بحث باسم الطالب أو النص..."
+                className="w-64 rounded-xl border border-light-blue bg-bg/40 px-3 py-1.5 text-sm text-ink focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-muted hover:text-error"
+                  aria-label="مسح البحث"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3 text-xs text-ink-muted">
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-sm border" style={{ borderColor: GREEN, background: `${GREEN}22` }} />
+                تعميم
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-sm border border-light-blue bg-white" />
+                خاصة
+              </span>
+            </div>
           </div>
         </div>
 
         {loading ? (
           <p className="text-sm text-ink-muted">جارٍ التحميل...</p>
-        ) : threads.length === 0 ? (
-          <p className="text-center text-ink-muted">لا توجد رسائل بعد.</p>
+        ) : filteredThreads.length === 0 ? (
+          <p className="py-6 text-center text-sm text-ink-muted">
+            {searchQuery.trim() ? 'لا توجد رسائل مطابقة لبحثك.' : 'لا توجد رسائل بعد.'}
+          </p>
         ) : (
           <ul className="space-y-2.5">
-            {threads.map(({ root: m, replies, latestAt, unreadIds }) => {
+            {filteredThreads.map(({ root: m, replies, latestAt, unreadIds, autoExpand }) => {
               const isPublic = m.recipient_id === null
-              const isOpen = openCards.has(m.id)
+              const isOpen = openCards.has(m.id) || autoExpand
               const hasUnread = unreadIds.length > 0
               const fromStudentDirectly = m.sender_id !== meId
 
@@ -445,7 +503,6 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                         : 'border-light-blue bg-white')
                   }
                 >
-                  {/* الرأس المطوي القابل للنقر */}
                   <button
                     type="button"
                     onClick={() => toggleCard(m.id, unreadIds)}
@@ -487,7 +544,6 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                     </div>
                   </button>
 
-                  {/* المحتوى الكامل يظهر فقط عند الفتح */}
                   {isOpen && (
                     <div className="border-t border-light-blue/50 px-4 pb-4 pt-3">
                       {m.subject && <div className="mb-1.5 font-bold text-ink">الموضوع: {m.subject}</div>}
