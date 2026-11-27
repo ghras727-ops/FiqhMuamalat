@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../app/auth-context'
@@ -67,6 +67,10 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const { profile } = useAuth()
   const meId = profile?.id
 
+  // تثبيت مرجع onRead حتى لا يتسبب تحديث العدّاد كل 15 ثانية في إعادة تحميل الصفحة وقفزها
+  const onReadRef = useRef(onRead)
+  onReadRef.current = onRead
+
   const [messages, setMessages] = useState<Message[]>([])
   const [reactions, setReactions] = useState<ReactionRow[]>([])
   const [students, setStudents] = useState<Student[]>([])
@@ -74,13 +78,15 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
 
+  const [composerOpen, setComposerOpen] = useState(false)
   const [to, setTo] = useState<string>('all')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [fileKey, setFileKey] = useState(0)
 
-  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set())
+  // كل الرسائل مطوية افتراضياً وتُفتح بالنقر
+  const [openCards, setOpenCards] = useState<Set<string>>(new Set())
   const [replyTarget, setReplyTarget] = useState<{ rootId: string; studentId: string; studentName: string; subject: string | null } | null>(null)
   const [replyBody, setReplyBody] = useState('')
 
@@ -95,9 +101,9 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     return map
   }, [students])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!supabase || !meId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     const [mRes, sRes] = await Promise.all([
       fetchMessages(supabase, `sender_id.eq.${meId},recipient_id.eq.${meId},recipient_id.is.null`),
       supabase
@@ -119,37 +125,18 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     else setStudents((sRes.data ?? []) as Student[])
 
     if (activeRows.length > 0) {
-      const ids = activeRows.map((m) => m.id)
       const rxRes = await supabase
         .from('message_reactions')
         .select('message_id, user_id, emoji')
-        .in('message_id', ids)
+        .in('message_id', activeRows.map((m) => m.id))
       if (!rxRes.error) setReactions((rxRes.data ?? []) as ReactionRow[])
-
-      // تعليم الرسائل الواردة للأستاذ كمقروءة وتحديث الشارة الحمراء
-      const unreadIncoming = activeRows
-        .filter((m) => m.recipient_id === meId && !m.read_at)
-        .map((m) => m.id)
-
-      if (unreadIncoming.length > 0) {
-        const now = new Date().toISOString()
-        const { error: readErr } = await supabase
-          .from('messages')
-          .update({ read_at: now })
-          .in('id', unreadIncoming)
-          .is('read_at', null)
-        if (!readErr) {
-          setMessages((prev) => prev.map((m) => (unreadIncoming.includes(m.id) ? { ...m, read_at: now } : m)))
-          onRead?.()
-        }
-      }
     }
 
-    setLoading(false)
-  }, [meId, notify, onRead])
+    if (!silent) setLoading(false)
+  }, [meId, notify])
 
   useEffect(() => {
-    void load()
+    void load(false)
   }, [load])
 
   const reactionsByMsg = useMemo(() => {
@@ -162,7 +149,8 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     return map
   }, [reactions])
 
-  const { topMessages, repliesByParent } = useMemo(() => {
+  // تجميع الردود تحت الرسالة الأصلية + ترتيب السجل بأحدث نشاط (أحدث رسالة أو أحدث رد)
+  const threads = useMemo(() => {
     const byId = new Map(messages.map((m) => [m.id, m]))
     const replies = new Map<string, Message[]>()
     const tops: Message[] = []
@@ -177,12 +165,44 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
       }
     }
 
-    for (const list of replies.values()) {
-      list.sort((a, b) => a.created_at.localeCompare(b.created_at))
-    }
+    return tops
+      .map((root) => {
+        const list = (replies.get(root.id) ?? []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
+        const latestAt = list.length > 0 ? list[list.length - 1].created_at : root.created_at
+        const unreadIds = [root, ...list]
+          .filter((x) => x.recipient_id === meId && !x.read_at)
+          .map((x) => x.id)
+        return { root, replies: list, latestAt, unreadIds }
+      })
+      .sort((a, b) => b.latestAt.localeCompare(a.latestAt))
+  }, [messages, meId])
 
-    return { topMessages: tops, repliesByParent: replies }
-  }, [messages])
+  async function markThreadRead(unreadIds: string[]) {
+    if (!supabase || unreadIds.length === 0) return
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('messages')
+      .update({ read_at: now })
+      .in('id', unreadIds)
+      .is('read_at', null)
+    if (!error) {
+      setMessages((prev) => prev.map((m) => (unreadIds.includes(m.id) ? { ...m, read_at: now } : m)))
+      onReadRef.current?.()
+    }
+  }
+
+  function toggleCard(id: string, unreadIds: string[]) {
+    const willOpen = !openCards.has(id)
+    setOpenCards((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    if (willOpen && unreadIds.length > 0) {
+      void markThreadRead(unreadIds)
+    }
+  }
 
   async function toggleReaction(messageId: string, emoji: string) {
     if (!supabase || !meId) return
@@ -247,9 +267,10 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     setFile(null)
     setFileKey((k) => k + 1)
     setTo('all')
+    setComposerOpen(false)
     setBusy(false)
     notify('success', 'تم إرسال الرسالة بنجاح.')
-    await load()
+    await load(true)
   }
 
   async function sendPrivateReply() {
@@ -274,7 +295,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     setReplyTarget(null)
     setReplyBody('')
     notify('success', 'تم إرسال الرد الخاص للطالب.')
-    await load()
+    await load(true)
   }
 
   async function openAttachment(path: string) {
@@ -288,19 +309,10 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  function toggleThread(id: string) {
-    setExpandedThreads((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
   if (!profile || !meId) return null
 
   const senderLabel = (m: Message) =>
-    m.sender_id === meId ? 'أنت' : m.profiles_sender?.full_name || studentName.get(m.sender_id) || 'مستخدم'
+    m.sender_id === meId ? 'أنت' : m.profiles_sender?.full_name || studentName.get(m.sender_id) || 'طالب'
   const targetLabel = (m: Message) =>
     m.recipient_id === null
       ? 'جميع الطلاب (تعميم)'
@@ -309,10 +321,28 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
         : studentName.get(m.recipient_id) || 'طالب'
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-6 text-white shadow-md">
-        <h2 className="text-3xl font-bold">مراسلة الطلاب</h2>
-        <p className="mt-1 text-base text-white/85">إرسال رسائل خاصة أو تعميمات لجميع الطلاب، والاطلاع على ردودهم.</p>
+    <div className="space-y-4">
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gradient-to-l from-primary to-primary-hover p-5 text-white shadow-md">
+        <div>
+          <h2 className="text-2xl font-bold">المراسلة والتعميمات</h2>
+          <p className="mt-1 text-sm text-white/85">مرتّبة بالأحدث — انقر على أي رسالة لعرضها كاملة أو الرد عليها.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setComposerOpen((v) => !v)}
+            className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-primary shadow-sm transition hover:bg-primary-soft"
+          >
+            {composerOpen ? 'إغلاق النموذج' : '✉️ رسالة أو تعميم جديد'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void load(true)}
+            className="rounded-xl border border-white/40 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+          >
+            تحديث
+          </button>
+        </div>
       </section>
 
       {notice && (
@@ -327,56 +357,58 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
         </p>
       )}
 
-      <section className={card}>
-        <h3 className="mb-4 text-xl font-bold text-primary">رسالة جديدة</h3>
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label htmlFor="msg-to" className="text-sm font-semibold">المرسل إليه</label>
-              <select id="msg-to" className={input} value={to} onChange={(e) => setTo(e.target.value)}>
-                <option value="all">جميع الطلاب (تعميم)</option>
-                {students.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name}
-                    {s.student_no ? ` (${s.student_no})` : ''}
-                  </option>
-                ))}
-              </select>
+      {composerOpen && (
+        <section className={card}>
+          <h3 className="mb-4 text-lg font-bold text-primary">رسالة أو تعميم جديد</h3>
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label htmlFor="msg-to" className="text-sm font-semibold">المرسل إليه</label>
+                <select id="msg-to" className={input} value={to} onChange={(e) => setTo(e.target.value)}>
+                  <option value="all">جميع الطلاب (تعميم)</option>
+                  {students.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}
+                      {s.student_no ? ` (${s.student_no})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="msg-subject" className="text-sm font-semibold">الموضوع (اختياري)</label>
+                <input
+                  id="msg-subject"
+                  className={input}
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="عنوان الرسالة..."
+                />
+              </div>
             </div>
             <div>
-              <label htmlFor="msg-subject" className="text-sm font-semibold">الموضوع (اختياري)</label>
+              <label htmlFor="msg-body" className="text-sm font-semibold">نص الرسالة</label>
+              <textarea id="msg-body" className={input} rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="msg-file" className="text-sm font-semibold">مرفق (صورة أو ملف — اختياري)</label>
               <input
-                id="msg-subject"
+                key={fileKey}
+                id="msg-file"
+                type="file"
                 className={input}
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="عنوان الرسالة..."
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
             </div>
+            <button type="button" className={btn} onClick={() => void sendMessage()} disabled={busy}>
+              {busy ? 'جارٍ الإرسال...' : 'إرسال'}
+            </button>
           </div>
-          <div>
-            <label htmlFor="msg-body" className="text-sm font-semibold">نص الرسالة</label>
-            <textarea id="msg-body" className={input} rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="msg-file" className="text-sm font-semibold">مرفق (اختياري)</label>
-            <input
-              key={fileKey}
-              id="msg-file"
-              type="file"
-              className={input}
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </div>
-          <button type="button" className={btn} onClick={() => void sendMessage()} disabled={busy}>
-            {busy ? 'جارٍ الإرسال...' : 'إرسال'}
-          </button>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section className={card}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-xl font-bold text-primary">سجل المراسلات</h3>
+          <h3 className="text-lg font-bold text-primary">سجل المراسلات ({threads.length})</h3>
           <div className="flex gap-4 text-xs text-ink-muted">
             <span className="flex items-center gap-1.5">
               <span className="h-3 w-3 rounded-sm border" style={{ borderColor: GREEN, background: `${GREEN}22` }} />
@@ -390,73 +422,119 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
         </div>
 
         {loading ? (
-          <p>جارٍ التحميل...</p>
-        ) : topMessages.length === 0 ? (
+          <p className="text-sm text-ink-muted">جارٍ التحميل...</p>
+        ) : threads.length === 0 ? (
           <p className="text-center text-ink-muted">لا توجد رسائل بعد.</p>
         ) : (
-          <ul className="space-y-3">
-            {topMessages.map((m) => {
+          <ul className="space-y-2.5">
+            {threads.map(({ root: m, replies, latestAt, unreadIds }) => {
               const isPublic = m.recipient_id === null
-              const replies = repliesByParent.get(m.id) ?? []
-              const isExpanded = expandedThreads.has(m.id) || replies.length <= 2
+              const isOpen = openCards.has(m.id)
+              const hasUnread = unreadIds.length > 0
+              const fromStudentDirectly = m.sender_id !== meId
+
               return (
                 <li
                   key={m.id}
                   className={
-                    'rounded-xl border p-4 ' +
-                    (isPublic ? 'border-[#198B48] bg-[#198B48]/10' : 'border-light-blue bg-white')
+                    'rounded-xl border transition ' +
+                    (hasUnread
+                      ? 'border-error/60 bg-error-soft/20'
+                      : isPublic
+                        ? 'border-[#198B48]/70 bg-[#198B48]/5'
+                        : 'border-light-blue bg-white')
                   }
                 >
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-light-blue/50 pb-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-primary">{senderLabel(m)}</span>
-                      <span className="text-ink-muted">←</span>
-                      <span className="font-semibold text-ink">{targetLabel(m)}</span>
-                      {m.parent_id && (
-                        <span className="rounded-full bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">رد</span>
-                      )}
-                      {isPublic && (
-                        <span className="rounded-full bg-[#198B48] px-2 py-0.5 text-xs font-semibold text-white">تعميم</span>
+                  {/* الرأس المطوي القابل للنقر */}
+                  <button
+                    type="button"
+                    onClick={() => toggleCard(m.id, unreadIds)}
+                    className="flex w-full items-start justify-between gap-3 p-3.5 text-start"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-bold text-primary">{senderLabel(m)}</span>
+                        <span className="text-ink-muted">←</span>
+                        <span className="font-semibold text-ink">{targetLabel(m)}</span>
+                        {isPublic && (
+                          <span className="rounded-full bg-[#198B48] px-2 py-0.5 text-[11px] font-semibold text-white">تعميم</span>
+                        )}
+                        {hasUnread && (
+                          <span className="rounded-full bg-error px-2 py-0.5 text-[11px] font-bold text-white">
+                            جديد ({unreadIds.length})
+                          </span>
+                        )}
+                        {replies.length > 0 && (
+                          <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary">
+                            {replies.length} رد
+                          </span>
+                        )}
+                        {m.attachment_path && (
+                          <span className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-ink-muted">📎 مرفق</span>
+                        )}
+                      </div>
+
+                      {!isOpen && (
+                        <p className="truncate text-sm text-ink-muted">
+                          {m.subject ? `${m.subject} — ` : ''}{m.body}
+                        </p>
                       )}
                     </div>
-                    <span className="text-xs text-ink-muted">{fmt(m.created_at)}</span>
-                  </div>
-                  {m.subject && <div className="mb-1 font-bold text-ink">الموضوع: {m.subject}</div>}
-                  <p className="whitespace-pre-wrap text-sm text-ink">{m.body}</p>
-                  {m.attachment_path && (
-                    <button
-                      type="button"
-                      onClick={() => void openAttachment(m.attachment_path as string)}
-                      className="mt-2 block text-sm font-semibold text-primary hover:underline"
-                    >
-                      عرض المرفق
-                    </button>
-                  )}
 
-                  <MessageReactions
-                    messageId={m.id}
-                    meId={meId}
-                    reactions={reactionsByMsg.get(m.id) ?? []}
-                    onToggle={(id, emoji) => void toggleReaction(id, emoji)}
-                  />
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-xs text-ink-muted">{fmt(latestAt)}</span>
+                      <span className="text-xs font-semibold text-primary">{isOpen ? '▲ طيّ' : '▼ فتح'}</span>
+                    </div>
+                  </button>
 
-                  {replies.length > 0 && (
-                    <div className="mt-3 border-t border-light-blue/60 pt-3">
-                      <button
-                        type="button"
-                        onClick={() => toggleThread(m.id)}
-                        className="mb-2 text-xs font-bold text-primary hover:underline"
-                      >
-                        {isExpanded ? `إخفاء الردود (${replies.length})` : `عرض الردود (${replies.length})`}
-                      </button>
+                  {/* المحتوى الكامل يظهر فقط عند الفتح */}
+                  {isOpen && (
+                    <div className="border-t border-light-blue/50 px-4 pb-4 pt-3">
+                      {m.subject && <div className="mb-1.5 font-bold text-ink">الموضوع: {m.subject}</div>}
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{m.body}</p>
 
-                      {isExpanded && (
-                        <ul className="space-y-2 border-s-2 border-primary/30 ps-3">
+                      {m.attachment_path && (
+                        <button
+                          type="button"
+                          onClick={() => void openAttachment(m.attachment_path as string)}
+                          className="mt-2 inline-flex items-center gap-1 rounded-lg bg-primary-soft px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-white"
+                        >
+                          📎 فتح المرفق / الصورة
+                        </button>
+                      )}
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        <MessageReactions
+                          messageId={m.id}
+                          meId={meId}
+                          reactions={reactionsByMsg.get(m.id) ?? []}
+                          onToggle={(id, emoji) => void toggleReaction(id, emoji)}
+                        />
+                        {fromStudentDirectly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReplyTarget({
+                                rootId: m.id,
+                                studentId: m.sender_id,
+                                studentName: senderLabel(m),
+                                subject: m.subject,
+                              })
+                              setReplyBody('')
+                            }}
+                            className="text-xs font-bold text-primary hover:underline"
+                          >
+                            رد على {senderLabel(m)}
+                          </button>
+                        )}
+                      </div>
+
+                      {replies.length > 0 && (
+                        <ul className="mt-3 space-y-2 border-s-2 border-primary/30 ps-3">
                           {replies.map((r) => {
                             const fromStudent = r.sender_id !== meId
-                            const isReplyingHere = replyTarget?.rootId === m.id && replyTarget.studentId === r.sender_id
                             return (
-                              <li key={r.id} className="rounded-lg border border-light-blue/70 bg-white/90 p-3">
+                              <li key={r.id} className="rounded-lg border border-light-blue/70 bg-white p-3">
                                 <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
                                     <span className="font-bold text-primary">{senderLabel(r)}</span>
@@ -466,7 +544,15 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                                   <span className="text-[11px] text-ink-muted">{fmt(r.created_at)}</span>
                                 </div>
                                 <p className="whitespace-pre-wrap text-sm text-ink">{r.body}</p>
-
+                                {r.attachment_path && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void openAttachment(r.attachment_path as string)}
+                                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+                                  >
+                                    📎 فتح المرفق / الصورة
+                                  </button>
+                                )}
                                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                                   <MessageReactions
                                     messageId={r.id}
@@ -474,7 +560,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                                     reactions={reactionsByMsg.get(r.id) ?? []}
                                     onToggle={(id, emoji) => void toggleReaction(id, emoji)}
                                   />
-                                  {fromStudent && !isReplyingHere && (
+                                  {fromStudent && (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -486,7 +572,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                                         })
                                         setReplyBody('')
                                       }}
-                                      className="text-xs font-semibold text-primary hover:underline"
+                                      className="text-xs font-bold text-primary hover:underline"
                                     >
                                       رد خاص على {senderLabel(r)}
                                     </button>
@@ -497,36 +583,36 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                           })}
                         </ul>
                       )}
-                    </div>
-                  )}
 
-                  {replyTarget?.rootId === m.id && (
-                    <div className="mt-3 rounded-xl border border-primary/30 bg-bg p-3">
-                      <label className="text-xs font-bold text-primary">
-                        رد خاص إلى: {replyTarget.studentName}
-                      </label>
-                      <textarea
-                        className={input}
-                        rows={2}
-                        placeholder="اكتب ردك الخاص هنا..."
-                        value={replyBody}
-                        onChange={(e) => setReplyBody(e.target.value)}
-                      />
-                      <div className="mt-2 flex items-center gap-3">
-                        <button type="button" className={btn} onClick={() => void sendPrivateReply()} disabled={busy}>
-                          {busy ? 'جارٍ الإرسال...' : 'إرسال الرد الخاص'}
-                        </button>
-                        <button
-                          type="button"
-                          className="text-sm text-error hover:underline"
-                          onClick={() => {
-                            setReplyTarget(null)
-                            setReplyBody('')
-                          }}
-                        >
-                          إلغاء
-                        </button>
-                      </div>
+                      {replyTarget?.rootId === m.id && (
+                        <div className="mt-3 rounded-xl border border-primary/30 bg-bg p-3">
+                          <label className="text-xs font-bold text-primary">
+                            رد خاص إلى: {replyTarget.studentName}
+                          </label>
+                          <textarea
+                            className={input}
+                            rows={2}
+                            placeholder="اكتب ردك الخاص هنا..."
+                            value={replyBody}
+                            onChange={(e) => setReplyBody(e.target.value)}
+                          />
+                          <div className="mt-2 flex items-center gap-3">
+                            <button type="button" className={btn} onClick={() => void sendPrivateReply()} disabled={busy}>
+                              {busy ? 'جارٍ الإرسال...' : 'إرسال الرد الخاص'}
+                            </button>
+                            <button
+                              type="button"
+                              className="text-sm text-error hover:underline"
+                              onClick={() => {
+                                setReplyTarget(null)
+                                setReplyBody('')
+                              }}
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </li>

@@ -1,4 +1,6 @@
-﻿export interface ReactionRow {
+﻿import { useState } from 'react'
+
+export interface ReactionRow {
   message_id: string
   user_id: string
   emoji: string
@@ -15,35 +17,79 @@ interface Props {
 }
 
 export default function MessageReactions({ messageId, meId, reactions, onToggle, disabled }: Props) {
+  const [open, setOpen] = useState(false)
   const mine = new Set(reactions.filter((r) => r.user_id === meId).map((r) => r.emoji))
   const counts = new Map<string, number>()
   for (const r of reactions) {
     counts.set(r.emoji, (counts.get(r.emoji) ?? 0) + 1)
   }
 
+  const activeList = QUICK_EMOJIS.filter((e) => (counts.get(e) ?? 0) > 0)
+
   return (
-    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-      {QUICK_EMOJIS.map((emoji) => {
+    <div className="flex flex-wrap items-center gap-1.5">
+      {activeList.map((emoji) => {
         const count = counts.get(emoji) ?? 0
-        const active = mine.has(emoji)
+        const isMine = mine.has(emoji)
         return (
           <button
             key={emoji}
             type="button"
             disabled={disabled}
-            onClick={() => onToggle(messageId, emoji)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggle(messageId, emoji)
+            }}
             className={
-              'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition ' +
-              (active
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold transition ' +
+              (isMine
                 ? 'border-primary bg-primary-soft text-primary'
-                : 'border-light-blue bg-white text-ink-muted hover:border-primary/50 hover:text-ink')
+                : 'border-light-blue bg-white text-ink-muted hover:border-primary/50')
             }
           >
             <span>{emoji}</span>
-            {count > 0 && <span>{count}</span>}
+            <span>{count}</span>
           </button>
         )
       })}
+
+      <div className="relative">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen((v) => !v)
+          }}
+          className="rounded-full border border-light-blue bg-white px-2.5 py-0.5 text-xs font-semibold text-ink-muted transition hover:border-primary hover:text-primary"
+        >
+          {open ? 'إغلاق' : 'تفاعل +'}
+        </button>
+
+        {open && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="mt-1 inline-flex items-center gap-1 rounded-full border border-light-blue bg-white px-2 py-1 shadow-md"
+          >
+            {QUICK_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => {
+                  onToggle(messageId, emoji)
+                  setOpen(false)
+                }}
+                className={
+                  'rounded-full px-1.5 py-0.5 text-sm transition hover:bg-primary-soft ' +
+                  (mine.has(emoji) ? 'bg-primary-soft' : '')
+                }
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

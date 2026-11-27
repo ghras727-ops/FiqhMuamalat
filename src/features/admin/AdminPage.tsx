@@ -108,7 +108,7 @@ export default function AdminPage() {
     { key: 'attendance', node: <AttendanceTab /> },
     { key: 'final', node: <FinalGradesTab /> },
     { key: 'reports', node: <ReportsTab /> },
-    { key: 'comm', node: <CommHub unreadCount={unreadCounts.directCount} onRead={() => void refreshUnread()} /> },
+    { key: 'comm', node: <CommHub unreadCount={unreadCounts.directCount} onRead={refreshUnread} /> },
   ]
 
   return (
