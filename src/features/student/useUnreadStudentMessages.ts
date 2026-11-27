@@ -7,7 +7,7 @@ export const MESSAGES_READ_EVENT = 'student-messages-read'
 
 /**
  * عدّاد الرسائل غير المقروءة للطالب:
- * - الخاصة: recipient_id = أنا و read_at فارغ.
+ * - الخاصة: recipient_id = أنا و read_at فارغ وليس لها سجل في message_reads.
  * - التعميمات: recipient_id فارغ ولا يوجد لها سجل في message_reads لهذا الطالب.
  */
 export function useUnreadStudentMessages() {
@@ -24,18 +24,19 @@ export function useUnreadStudentMessages() {
     ])
     if (priv.error || bc.error) return
 
+    const read = new Set(
+      reads.error ? [] : ((reads.data ?? []) as { message_id: string }[]).map((r) => r.message_id),
+    )
+
     const privateUnread = ((priv.data ?? []) as { id: string; is_deleted: boolean | null }[]).filter(
-      (m) => !m.is_deleted,
+      (m) => !m.is_deleted && !read.has(m.id),
     ).length
 
-    // إن تعذّر جلب message_reads (الجدول غير منشأ) لا نعدّ التعميمات حتى لا تبقى الشارة ظاهرة دائماً
-    let broadcastUnread = 0
-    if (!reads.error) {
-      const read = new Set(((reads.data ?? []) as { message_id: string }[]).map((r) => r.message_id))
-      broadcastUnread = ((bc.data ?? []) as { id: string; is_deleted: boolean | null }[]).filter(
-        (m) => !m.is_deleted && !read.has(m.id),
-      ).length
-    }
+    const broadcastUnread = reads.error
+      ? 0
+      : ((bc.data ?? []) as { id: string; is_deleted: boolean | null }[]).filter(
+          (m) => !m.is_deleted && !read.has(m.id),
+        ).length
 
     setCount(privateUnread + broadcastUnread)
   }, [meId])

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../app/auth-context'
@@ -20,6 +20,9 @@ interface Message {
   body: string
   attachment_path: string | null
   read_at: string | null
+  edited_at?: string | null
+  allow_replies?: boolean
+  allow_reactions?: boolean
   created_at: string
   is_deleted?: boolean | null
   profiles_sender?: { full_name: string | null } | null
@@ -72,6 +75,7 @@ export default function StudentMessagesTab() {
   const [messages, setMessages] = useState<Message[]>([])
   const [reactions, setReactions] = useState<ReactionRow[]>([])
   const [teacherId, setTeacherId] = useState<string | null>(null)
+  const [isBlocked, setIsBlocked] = useState(false)
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
   const [openCards, setOpenCards] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -88,6 +92,9 @@ export default function StudentMessagesTab() {
   const [replyBody, setReplyBody] = useState('')
   const [replyFile, setReplyFile] = useState<File | null>(null)
   const [replyFileKey, setReplyFileKey] = useState(0)
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editBody, setEditBody] = useState('')
   const [busy, setBusy] = useState(false)
 
   const notify = useCallback((type: 'success' | 'error', text: string) => {
@@ -99,10 +106,13 @@ export default function StudentMessagesTab() {
     if (!supabase || !meId) return
     if (!silent) setLoading(true)
 
-    const [res, teacherRes] = await Promise.all([
+    const [res, teacherRes, blockRes] = await Promise.all([
       fetchMessages(supabase, `sender_id.eq.${meId},recipient_id.eq.${meId},recipient_id.is.null`),
       supabase.from('profiles').select('id').eq('role', 'teacher').limit(1).maybeSingle(),
+      supabase.from('message_blocks').select('student_id').eq('student_id', meId).maybeSingle(),
     ])
+
+    if (!blockRes.error) setIsBlocked(Boolean(blockRes.data))
 
     if (res.error) {
       notify('error', `تعذّر جلب الرسائل: ${res.error}`)
@@ -121,12 +131,15 @@ export default function StudentMessagesTab() {
     const readsOk = !readRes.error
     const readIds = new Set(((readRes.data ?? []) as { message_id: string }[]).map((r) => r.message_id))
 
-    const unreadPrivate = rows.filter((m) => m.recipient_id === meId && !m.read_at).map((m) => m.id)
+    const unreadPrivate = rows
+      .filter((m) => m.recipient_id === meId && !m.read_at && !readIds.has(m.id))
+      .map((m) => m.id)
     const unreadBroadcast = readsOk
       ? rows.filter((m) => m.recipient_id === null && !readIds.has(m.id)).map((m) => m.id)
       : []
 
-    setNewIds(new Set([...unreadPrivate, ...unreadBroadcast]))
+    const toMarkRead = [...unreadPrivate, ...unreadBroadcast]
+    setNewIds(new Set(toMarkRead))
     setMessages(rows)
 
     if (rows.length > 0) {
@@ -139,21 +152,11 @@ export default function StudentMessagesTab() {
 
     if (!silent) setLoading(false)
 
-    if (unreadPrivate.length > 0) {
-      const now = new Date().toISOString()
-      const { error } = await supabase
-        .from('messages')
-        .update({ read_at: now })
-        .in('id', unreadPrivate)
-        .is('read_at', null)
-      if (!error) setMessages((prev) => prev.map((m) => (unreadPrivate.includes(m.id) ? { ...m, read_at: now } : m)))
-    }
-
-    if (unreadBroadcast.length > 0) {
+    if (readsOk && toMarkRead.length > 0) {
       await supabase
         .from('message_reads')
         .upsert(
-          unreadBroadcast.map((id) => ({ message_id: id, student_id: meId })),
+          toMarkRead.map((id) => ({ message_id: id, student_id: meId })),
           { onConflict: 'message_id,student_id', ignoreDuplicates: true },
         )
     }
@@ -211,10 +214,39 @@ export default function StudentMessagesTab() {
       const { error } = await supabase
         .from('message_reactions')
         .insert({ message_id: messageId, user_id: meId, emoji })
-      if (!error) {
-        setReactions((prev) => [...prev, { message_id: messageId, user_id: meId, emoji }])
+      if (error) {
+        notify('error', 'تعذّر إضافة التفاعل (قد تكون التفاعلات مغلقة على هذه الرسالة).')
+        return
       }
+      setReactions((prev) => [...prev, { message_id: messageId, user_id: meId, emoji }])
     }
+  }
+
+  async function saveEdit(messageId: string) {
+    if (!supabase || !meId) return
+    const trimmed = editBody.trim()
+    if (!trimmed) {
+      notify('error', 'نص الرسالة لا يمكن أن يكون فارغاً.')
+      return
+    }
+    setBusy(true)
+    const { error } = await supabase
+      .from('messages')
+      .update({ body: trimmed })
+      .eq('id', messageId)
+    setBusy(false)
+    if (error) {
+      const msg = error.message.includes('CANNOT_EDIT_READ_MESSAGE')
+        ? 'لا يمكن تعديل الرسالة بعد أن قرأها الأستاذ.'
+        : `تعذّر تعديل الرسالة: ${error.message}`
+      notify('error', msg)
+      return
+    }
+    const now = new Date().toISOString()
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, body: trimmed, edited_at: now } : m)))
+    setEditingId(null)
+    setEditBody('')
+    notify('success', 'تم تعديل رسالتك بنجاح.')
   }
 
   async function sendNewMessage() {
@@ -330,14 +362,22 @@ export default function StudentMessagesTab() {
             {newIds.size > 0 ? `لديك ${newIds.size} رسالة جديدة.` : 'صندوق الوارد وتعميمات المقرر — يمكنك مراسلة الأستاذ وإرسال المرفقات.'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setComposerOpen((v) => !v)}
-          className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-primary shadow-sm transition hover:bg-primary-soft"
-        >
-          {composerOpen ? 'إغلاق النموذج' : '✉️ رسالة جديدة للأستاذ'}
-        </button>
+        {!isBlocked && (
+          <button
+            type="button"
+            onClick={() => setComposerOpen((v) => !v)}
+            className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-primary shadow-sm transition hover:bg-primary-soft"
+          >
+            {composerOpen ? 'إغلاق النموذج' : '✉️ رسالة جديدة للأستاذ'}
+          </button>
+        )}
       </section>
+
+      {isBlocked && (
+        <p className="rounded-xl border border-error/40 bg-error-soft p-3 text-sm font-semibold text-error">
+          تم إيقاف إمكانية إرسال الرسائل والتفاعلات لحسابك مؤقتاً من قِبل الأستاذ. يمكنك متابعة قراءة الرسائل والتعميمات.
+        </p>
+      )}
 
       {notice && (
         <p
@@ -351,7 +391,7 @@ export default function StudentMessagesTab() {
         </p>
       )}
 
-      {composerOpen && (
+      {composerOpen && !isBlocked && (
         <section className={card}>
           <h3 className="mb-3 text-lg font-bold text-primary">إرسال رسالة خاصة إلى الأستاذ</h3>
           <div className="space-y-3">
@@ -433,6 +473,9 @@ export default function StudentMessagesTab() {
               const isMine = m.sender_id === meId
               const isNew = newIds.has(m.id)
               const isOpen = openCards.has(m.id)
+              const canEdit = isMine && !m.read_at
+              const repliesAllowed = m.allow_replies !== false
+              const reactionsAllowed = m.allow_reactions !== false
 
               return (
                 <li
@@ -464,6 +507,14 @@ export default function StudentMessagesTab() {
                         ) : (
                           <span className="text-xs text-ink-muted">(خاصة)</span>
                         )}
+                        {m.edited_at && (
+                          <span
+                            title={`عُدّلت في ${fmt(m.edited_at)}`}
+                            className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-ink-muted"
+                          >
+                            معدّلة
+                          </span>
+                        )}
                         {m.attachment_path && (
                           <span className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-ink-muted">📎 مرفق</span>
                         )}
@@ -484,7 +535,39 @@ export default function StudentMessagesTab() {
                   {isOpen && (
                     <div className="border-t border-light-blue/50 px-4 pb-4 pt-3">
                       {m.subject && <div className="mb-1.5 font-bold text-ink">الموضوع: {m.subject}</div>}
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{m.body}</p>
+
+                      {editingId === m.id ? (
+                        <div className="space-y-2">
+                          <textarea
+                            className={input}
+                            rows={3}
+                            value={editBody}
+                            onChange={(e) => setEditBody(e.target.value)}
+                          />
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              className={btn}
+                              onClick={() => void saveEdit(m.id)}
+                              disabled={busy}
+                            >
+                              {busy ? 'جارٍ الحفظ...' : 'حفظ التعديل'}
+                            </button>
+                            <button
+                              type="button"
+                              className="text-sm text-error hover:underline"
+                              onClick={() => {
+                                setEditingId(null)
+                                setEditBody('')
+                              }}
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{m.body}</p>
+                      )}
 
                       {m.attachment_path && (
                         <button
@@ -497,27 +580,53 @@ export default function StudentMessagesTab() {
                       )}
 
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                        <MessageReactions
-                          messageId={m.id}
-                          meId={meId}
-                          reactions={reactionsByMsg.get(m.id) ?? []}
-                          onToggle={(id, emoji) => void toggleReaction(id, emoji)}
-                        />
-                        {!isMine && (
-                          <button
-                            type="button"
-                            className="text-xs font-bold text-primary hover:underline"
-                            onClick={() => {
-                              setReplyingTo(m)
-                              setReplyBody('')
-                            }}
-                          >
-                            الرد على الرسالة
-                          </button>
-                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <MessageReactions
+                            messageId={m.id}
+                            meId={meId}
+                            reactions={reactionsByMsg.get(m.id) ?? []}
+                            onToggle={(id, emoji) => void toggleReaction(id, emoji)}
+                            disableAdd={isBlocked || !reactionsAllowed}
+                          />
+                          {!reactionsAllowed && (
+                            <span className="text-[11px] font-semibold text-ink-muted">🚫 التفاعلات مغلقة</span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {canEdit && editingId !== m.id && (
+                            <button
+                              type="button"
+                              className="text-xs font-bold text-primary hover:underline"
+                              onClick={() => {
+                                setEditingId(m.id)
+                                setEditBody(m.body)
+                              }}
+                            >
+                              تعديل
+                            </button>
+                          )}
+
+                          {!isMine && !isBlocked && (
+                            repliesAllowed ? (
+                              <button
+                                type="button"
+                                className="text-xs font-bold text-primary hover:underline"
+                                onClick={() => {
+                                  setReplyingTo(m)
+                                  setReplyBody('')
+                                }}
+                              >
+                                الرد على الرسالة
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-semibold text-ink-muted">🔒 الردود مغلقة</span>
+                            )
+                          )}
+                        </div>
                       </div>
 
-                      {replyingTo?.id === m.id && (
+                      {replyingTo?.id === m.id && !isBlocked && repliesAllowed && (
                         <div className="mt-3 rounded-xl bg-bg p-3">
                           <label htmlFor={`reply-${m.id}`} className="text-sm font-semibold">ردك</label>
                           <textarea
@@ -564,4 +673,3 @@ export default function StudentMessagesTab() {
     </div>
   )
 }
-

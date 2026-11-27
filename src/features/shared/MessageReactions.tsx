@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 
 export interface ReactionRow {
   message_id: string
@@ -14,6 +14,7 @@ interface Props {
   reactions: ReactionRow[]
   onToggle: (messageId: string, emoji: string) => void
   disabled?: boolean
+  disableAdd?: boolean
   resolveUserName?: (userId: string) => string
 }
 
@@ -23,6 +24,7 @@ export default function MessageReactions({
   reactions,
   onToggle,
   disabled,
+  disableAdd,
   resolveUserName,
 }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -45,11 +47,12 @@ export default function MessageReactions({
         {activeList.map((emoji) => {
           const users = byEmoji.get(emoji) ?? []
           const isMine = mine.has(emoji)
+          const chipDisabled = Boolean(disabled) || (!resolveUserName && Boolean(disableAdd) && !isMine)
           return (
             <button
               key={emoji}
               type="button"
-              disabled={disabled}
+              disabled={chipDisabled}
               onClick={(e) => {
                 e.stopPropagation()
                 if (resolveUserName) {
@@ -58,9 +61,15 @@ export default function MessageReactions({
                   onToggle(messageId, emoji)
                 }
               }}
-              title={resolveUserName ? 'انقر لعرض أسماء المتفاعلين' : 'تبديل التفاعل'}
+              title={
+                resolveUserName
+                  ? 'انقر لعرض أسماء المتفاعلين'
+                  : isMine
+                    ? 'انقر لإزالة تفاعلك'
+                    : 'تبديل التفاعل'
+              }
               className={
-                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold transition ' +
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold transition disabled:opacity-50 ' +
                 (isMine
                   ? 'border-primary bg-primary-soft text-primary'
                   : 'border-light-blue bg-white text-ink-muted hover:border-primary/50')
@@ -72,43 +81,45 @@ export default function MessageReactions({
           )
         })}
 
-        <div className="relative">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              setPickerOpen((v) => !v)
-            }}
-            className="rounded-full border border-light-blue bg-white px-2.5 py-0.5 text-xs font-semibold text-ink-muted transition hover:border-primary hover:text-primary"
-          >
-            {pickerOpen ? 'إغلاق' : 'تفاعل +'}
-          </button>
-
-          {pickerOpen && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="mt-1 inline-flex items-center gap-1 rounded-full border border-light-blue bg-white px-2 py-1 shadow-md"
+        {!disableAdd && (
+          <div className="relative">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={(e) => {
+                e.stopPropagation()
+                setPickerOpen((v) => !v)
+              }}
+              className="rounded-full border border-light-blue bg-white px-2.5 py-0.5 text-xs font-semibold text-ink-muted transition hover:border-primary hover:text-primary disabled:opacity-50"
             >
-              {QUICK_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => {
-                    onToggle(messageId, emoji)
-                    setPickerOpen(false)
-                  }}
-                  className={
-                    'rounded-full px-1.5 py-0.5 text-sm transition hover:bg-primary-soft ' +
-                    (mine.has(emoji) ? 'bg-primary-soft' : '')
-                  }
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+              {pickerOpen ? 'إغلاق' : 'تفاعل +'}
+            </button>
+
+            {pickerOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="mt-1 inline-flex items-center gap-1 rounded-full border border-light-blue bg-white px-2 py-1 shadow-md"
+              >
+                {QUICK_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      onToggle(messageId, emoji)
+                      setPickerOpen(false)
+                    }}
+                    className={
+                      'rounded-full px-1.5 py-0.5 text-sm transition hover:bg-primary-soft ' +
+                      (mine.has(emoji) ? 'bg-primary-soft' : '')
+                    }
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {resolveUserName && inspectEmoji && inspectedUsers.length > 0 && (

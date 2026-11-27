@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../app/auth-context'
@@ -20,6 +20,9 @@ interface Message {
   body: string
   attachment_path: string | null
   read_at: string | null
+  edited_at?: string | null
+  allow_replies?: boolean
+  allow_reactions?: boolean
   created_at: string
   is_deleted?: boolean | null
   profiles_sender?: { full_name: string | null } | null
@@ -81,6 +84,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [reactions, setReactions] = useState<ReactionRow[]>([])
   const [students, setStudents] = useState<Student[]>([])
+  const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -116,7 +120,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const load = useCallback(async (silent = false) => {
     if (!supabase || !meId) return
     if (!silent) setLoading(true)
-    const [mRes, sRes] = await Promise.all([
+    const [mRes, sRes, bRes] = await Promise.all([
       fetchMessages(supabase, `sender_id.eq.${meId},recipient_id.eq.${meId},recipient_id.is.null`),
       supabase
         .from('profiles')
@@ -124,6 +128,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
         .eq('role', 'student')
         .eq('active', true)
         .order('student_no'),
+      supabase.from('message_blocks').select('student_id'),
     ])
 
     let activeRows: Message[] = []
@@ -135,6 +140,10 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
 
     if (sRes.error) notify('error', `تعذّر جلب قائمة الطلاب: ${sRes.error.message}`)
     else setStudents((sRes.data ?? []) as Student[])
+
+    if (!bRes.error) {
+      setBlockedIds(new Set(((bRes.data ?? []) as { student_id: string }[]).map((b) => b.student_id)))
+    }
 
     if (activeRows.length > 0) {
       const rxRes = await supabase
@@ -247,6 +256,51 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     })
     if (willOpen && unreadIds.length > 0) {
       void markThreadRead(unreadIds)
+    }
+  }
+
+  async function toggleAllow(messageId: string, field: 'allow_replies' | 'allow_reactions', current: boolean) {
+    if (!supabase) return
+    const next = !current
+    const { error } = await supabase
+      .from('messages')
+      .update({ [field]: next })
+      .eq('id', messageId)
+    if (error) {
+      notify('error', `تعذّر تحديث الإعداد: ${error.message}`)
+      return
+    }
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, [field]: next } : m)))
+    const label = field === 'allow_replies'
+      ? (next ? 'تم فتح الردود على هذه الرسالة.' : 'تم إغلاق الردود على هذه الرسالة.')
+      : (next ? 'تم فتح التفاعلات على هذه الرسالة.' : 'تم إغلاق التفاعلات على هذه الرسالة.')
+    notify('success', label)
+  }
+
+  async function toggleBlockStudent(studentId: string, name: string) {
+    if (!supabase || !meId) return
+    const blocked = blockedIds.has(studentId)
+    if (blocked) {
+      const { error } = await supabase.from('message_blocks').delete().eq('student_id', studentId)
+      if (error) {
+        notify('error', `تعذّر إلغاء إيقاف الطالب: ${error.message}`)
+        return
+      }
+      setBlockedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(studentId)
+        return next
+      })
+      notify('success', `تم إلغاء إيقاف الطالب «${name}».`)
+    } else {
+      if (!window.confirm(`هل تريد إيقاف الطالب «${name}» عن إرسال الرسائل والتفاعلات؟ (سيبقى قادراً على القراءة فقط)`)) return
+      const { error } = await supabase.from('message_blocks').insert({ student_id: studentId, blocked_by: meId })
+      if (error) {
+        notify('error', `تعذّر إيقاف الطالب: ${error.message}`)
+        return
+      }
+      setBlockedIds((prev) => new Set(prev).add(studentId))
+      notify('success', `تم إيقاف الطالب «${name}» عن الإرسال والتفاعل.`)
     }
   }
 
@@ -423,6 +477,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                     <option key={s.id} value={s.id}>
                       {s.full_name}
                       {s.student_no ? ` (${s.student_no})` : ''}
+                      {blockedIds.has(s.id) ? ' [موقوف]' : ''}
                     </option>
                   ))}
                 </select>
@@ -511,6 +566,9 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
               const isOpen = openCards.has(m.id) || autoExpand
               const hasUnread = unreadIds.length > 0
               const fromStudentDirectly = m.sender_id !== meId
+              const allowReplies = m.allow_replies !== false
+              const allowReactions = m.allow_reactions !== false
+              const senderBlocked = fromStudentDirectly && blockedIds.has(m.sender_id)
 
               return (
                 <li
@@ -532,6 +590,9 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <span className="font-bold text-primary">{senderLabel(m)}</span>
+                        {senderBlocked && (
+                          <span className="rounded-full bg-error/15 px-2 py-0.5 text-[11px] font-bold text-error">موقوف</span>
+                        )}
                         <span className="text-ink-muted">←</span>
                         <span className="font-semibold text-ink">{targetLabel(m)}</span>
                         {isPublic && (
@@ -546,6 +607,20 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                           <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary">
                             {replies.length} رد
                           </span>
+                        )}
+                        {m.edited_at && (
+                          <span
+                            title={`عُدّلت في ${fmt(m.edited_at)}`}
+                            className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-ink-muted"
+                          >
+                            معدّلة
+                          </span>
+                        )}
+                        {!allowReplies && (
+                          <span className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-ink-muted">🔒 ردود مغلقة</span>
+                        )}
+                        {!allowReactions && (
+                          <span className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-ink-muted">🚫 تفاعلات مغلقة</span>
                         )}
                         {m.attachment_path && (
                           <span className="rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-ink-muted">📎 مرفق</span>
@@ -567,6 +642,50 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
 
                   {isOpen && (
                     <div className="border-t border-light-blue/50 px-4 pb-4 pt-3">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-bg/60 px-3 py-1.5 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void toggleAllow(m.id, 'allow_replies', allowReplies)}
+                            className={
+                              'rounded-full border px-2.5 py-0.5 font-semibold transition ' +
+                              (allowReplies
+                                ? 'border-[#198B48]/40 bg-[#198B48]/10 text-[#198B48]'
+                                : 'border-error/40 bg-error-soft text-error')
+                            }
+                          >
+                            {allowReplies ? '🔓 الردود مفتوحة' : '🔒 الردود مغلقة'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void toggleAllow(m.id, 'allow_reactions', allowReactions)}
+                            className={
+                              'rounded-full border px-2.5 py-0.5 font-semibold transition ' +
+                              (allowReactions
+                                ? 'border-[#198B48]/40 bg-[#198B48]/10 text-[#198B48]'
+                                : 'border-error/40 bg-error-soft text-error')
+                            }
+                          >
+                            {allowReactions ? '👍 التفاعلات مفتوحة' : '🚫 التفاعلات مغلقة'}
+                          </button>
+                        </div>
+
+                        {fromStudentDirectly && (
+                          <button
+                            type="button"
+                            onClick={() => void toggleBlockStudent(m.sender_id, senderLabel(m))}
+                            className={
+                              'rounded-full border px-2.5 py-0.5 font-bold transition ' +
+                              (senderBlocked
+                                ? 'border-[#198B48]/40 bg-[#198B48]/10 text-[#198B48]'
+                                : 'border-error/40 bg-error-soft text-error')
+                            }
+                          >
+                            {senderBlocked ? 'إلغاء إيقاف الطالب' : 'إيقاف الطالب'}
+                          </button>
+                        )}
+                      </div>
+
                       {m.subject && <div className="mb-1.5 font-bold text-ink">الموضوع: {m.subject}</div>}
                       <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{m.body}</p>
 
@@ -620,13 +739,25 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                         <ul className="mt-3 space-y-2 border-s-2 border-primary/30 ps-3">
                           {replies.map((r) => {
                             const fromStudent = r.sender_id !== meId
+                            const replyBlocked = fromStudent && blockedIds.has(r.sender_id)
                             return (
                               <li key={r.id} className="rounded-lg border border-light-blue/70 bg-white p-3">
                                 <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
                                     <span className="font-bold text-primary">{senderLabel(r)}</span>
+                                    {replyBlocked && (
+                                      <span className="rounded-full bg-error/15 px-1.5 py-0.5 text-[10px] font-bold text-error">موقوف</span>
+                                    )}
                                     <span className="text-ink-muted">←</span>
                                     <span className="font-semibold text-ink">{targetLabel(r)}</span>
+                                    {r.edited_at && (
+                                      <span
+                                        title={`عُدّلت في ${fmt(r.edited_at)}`}
+                                        className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted"
+                                      >
+                                        معدّلة
+                                      </span>
+                                    )}
                                   </div>
                                   <span className="text-[11px] text-ink-muted">{fmt(r.created_at)}</span>
                                 </div>
@@ -650,21 +781,33 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                                   />
                                   <div className="flex items-center gap-3">
                                     {fromStudent && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setReplyTarget({
-                                            rootId: m.id,
-                                            studentId: r.sender_id,
-                                            studentName: senderLabel(r),
-                                            subject: m.subject,
-                                          })
-                                          setReplyBody('')
-                                        }}
-                                        className="text-xs font-bold text-primary hover:underline"
-                                      >
-                                        رد خاص على {senderLabel(r)}
-                                      </button>
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => void toggleBlockStudent(r.sender_id, senderLabel(r))}
+                                          className={
+                                            'text-xs font-bold hover:underline ' +
+                                            (replyBlocked ? 'text-[#198B48]' : 'text-error')
+                                          }
+                                        >
+                                          {replyBlocked ? 'إلغاء إيقاف الطالب' : 'إيقاف الطالب'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setReplyTarget({
+                                              rootId: m.id,
+                                              studentId: r.sender_id,
+                                              studentName: senderLabel(r),
+                                              subject: m.subject,
+                                            })
+                                            setReplyBody('')
+                                          }}
+                                          className="text-xs font-bold text-primary hover:underline"
+                                        >
+                                          رد خاص على {senderLabel(r)}
+                                        </button>
+                                      </>
                                     )}
                                     <button
                                       type="button"
