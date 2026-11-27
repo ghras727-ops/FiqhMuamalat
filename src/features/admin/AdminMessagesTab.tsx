@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../app/auth-context'
+import MessageReactions, { type ReactionRow } from '../shared/MessageReactions'
 
 const BUCKET = 'platform-files'
 const GREEN = '#198B48'
@@ -32,11 +33,6 @@ interface Student {
 
 type Notice = { type: 'success' | 'error'; text: string } | null
 
-/**
- * الجلب المطلوب: select('*, profiles_sender:sender_id(full_name)').
- * إن فشل التضمين (لعدم وجود مفتاح أجنبي sender_id → profiles) نرجع لجلب عادي
- * ثم نملأ الأسماء من جدول profiles حتى لا تتعطل الشاشة.
- */
 async function fetchMessages(
   client: SupabaseClient,
   filter: string,
@@ -67,11 +63,12 @@ async function fetchMessages(
 
 const fmt = (iso: string) => new Date(iso).toLocaleString('ar-SA-u-nu-latn')
 
-export default function AdminMessagesTab() {
+export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
   const { profile } = useAuth()
   const meId = profile?.id
 
   const [messages, setMessages] = useState<Message[]>([])
+  const [reactions, setReactions] = useState<ReactionRow[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -81,7 +78,11 @@ export default function AdminMessagesTab() {
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [fileKey, setFileKey] = useState(0) // لتفريغ حقل الملف بعد الإرسال
+  const [fileKey, setFileKey] = useState(0)
+
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set())
+  const [replyTarget, setReplyTarget] = useState<{ rootId: string; studentId: string; studentName: string; subject: string | null } | null>(null)
+  const [replyBody, setReplyBody] = useState('')
 
   const notify = useCallback((type: 'success' | 'error', text: string) => {
     setNotice({ type, text })
@@ -106,16 +107,105 @@ export default function AdminMessagesTab() {
         .eq('active', true)
         .order('student_no'),
     ])
+
+    let activeRows: Message[] = []
     if (mRes.error) notify('error', `تعذّر جلب الرسائل: ${mRes.error}`)
-    else setMessages(mRes.rows.filter((m) => !m.is_deleted))
+    else {
+      activeRows = mRes.rows.filter((m) => !m.is_deleted)
+      setMessages(activeRows)
+    }
+
     if (sRes.error) notify('error', `تعذّر جلب قائمة الطلاب: ${sRes.error.message}`)
     else setStudents((sRes.data ?? []) as Student[])
+
+    if (activeRows.length > 0) {
+      const ids = activeRows.map((m) => m.id)
+      const rxRes = await supabase
+        .from('message_reactions')
+        .select('message_id, user_id, emoji')
+        .in('message_id', ids)
+      if (!rxRes.error) setReactions((rxRes.data ?? []) as ReactionRow[])
+
+      // تعليم الرسائل الواردة للأستاذ كمقروءة وتحديث الشارة الحمراء
+      const unreadIncoming = activeRows
+        .filter((m) => m.recipient_id === meId && !m.read_at)
+        .map((m) => m.id)
+
+      if (unreadIncoming.length > 0) {
+        const now = new Date().toISOString()
+        const { error: readErr } = await supabase
+          .from('messages')
+          .update({ read_at: now })
+          .in('id', unreadIncoming)
+          .is('read_at', null)
+        if (!readErr) {
+          setMessages((prev) => prev.map((m) => (unreadIncoming.includes(m.id) ? { ...m, read_at: now } : m)))
+          onRead?.()
+        }
+      }
+    }
+
     setLoading(false)
-  }, [meId, notify])
+  }, [meId, notify, onRead])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const reactionsByMsg = useMemo(() => {
+    const map = new Map<string, ReactionRow[]>()
+    for (const r of reactions) {
+      const list = map.get(r.message_id) ?? []
+      list.push(r)
+      map.set(r.message_id, list)
+    }
+    return map
+  }, [reactions])
+
+  const { topMessages, repliesByParent } = useMemo(() => {
+    const byId = new Map(messages.map((m) => [m.id, m]))
+    const replies = new Map<string, Message[]>()
+    const tops: Message[] = []
+
+    for (const m of messages) {
+      if (m.parent_id && byId.has(m.parent_id)) {
+        const list = replies.get(m.parent_id) ?? []
+        list.push(m)
+        replies.set(m.parent_id, list)
+      } else {
+        tops.push(m)
+      }
+    }
+
+    for (const list of replies.values()) {
+      list.sort((a, b) => a.created_at.localeCompare(b.created_at))
+    }
+
+    return { topMessages: tops, repliesByParent: replies }
+  }, [messages])
+
+  async function toggleReaction(messageId: string, emoji: string) {
+    if (!supabase || !meId) return
+    const exists = reactions.some((r) => r.message_id === messageId && r.user_id === meId && r.emoji === emoji)
+    if (exists) {
+      const { error } = await supabase
+        .from('message_reactions')
+        .delete()
+        .eq('message_id', messageId)
+        .eq('user_id', meId)
+        .eq('emoji', emoji)
+      if (!error) {
+        setReactions((prev) => prev.filter((r) => !(r.message_id === messageId && r.user_id === meId && r.emoji === emoji)))
+      }
+    } else {
+      const { error } = await supabase
+        .from('message_reactions')
+        .insert({ message_id: messageId, user_id: meId, emoji })
+      if (!error) {
+        setReactions((prev) => [...prev, { message_id: messageId, user_id: meId, emoji }])
+      }
+    }
+  }
 
   async function sendMessage() {
     if (!supabase || !meId) return
@@ -146,14 +236,8 @@ export default function AdminMessagesTab() {
     })
 
     if (insErr) {
-      if (path) await supabase.storage.from(BUCKET).remove([path]) // لا نترك مرفقاً يتيماً
-      const nullProblem = /recipient_id/.test(insErr.message) && /null/i.test(insErr.message)
-      notify(
-        'error',
-        nullProblem
-          ? 'قاعدة البيانات لا تقبل recipient_id فارغاً (التعميم). نفّذ أمر SQL الخاص بإلغاء NOT NULL أولاً.'
-          : `فشل الإرسال: ${insErr.message}`,
-      )
+      if (path) await supabase.storage.from(BUCKET).remove([path])
+      notify('error', `فشل الإرسال: ${insErr.message}`)
       setBusy(false)
       return
     }
@@ -168,6 +252,31 @@ export default function AdminMessagesTab() {
     await load()
   }
 
+  async function sendPrivateReply() {
+    if (!supabase || !meId || !replyTarget) return
+    if (!replyBody.trim()) {
+      notify('error', 'اكتب نص الرد الخاص أولاً.')
+      return
+    }
+    setBusy(true)
+    const { error } = await supabase.from('messages').insert({
+      sender_id: meId,
+      recipient_id: replyTarget.studentId,
+      parent_id: replyTarget.rootId,
+      subject: replyTarget.subject ? `رد: ${replyTarget.subject.replace(/^رد:\s*/, '')}` : null,
+      body: replyBody.trim(),
+    })
+    setBusy(false)
+    if (error) {
+      notify('error', `فشل إرسال الرد: ${error.message}`)
+      return
+    }
+    setReplyTarget(null)
+    setReplyBody('')
+    notify('success', 'تم إرسال الرد الخاص للطالب.')
+    await load()
+  }
+
   async function openAttachment(path: string) {
     if (!supabase) return
     const signed = await supabase.storage.from(BUCKET).createSignedUrl(path, 600)
@@ -179,7 +288,16 @@ export default function AdminMessagesTab() {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  if (!profile) return null
+  function toggleThread(id: string) {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  if (!profile || !meId) return null
 
   const senderLabel = (m: Message) =>
     m.sender_id === meId ? 'أنت' : m.profiles_sender?.full_name || studentName.get(m.sender_id) || 'مستخدم'
@@ -273,12 +391,14 @@ export default function AdminMessagesTab() {
 
         {loading ? (
           <p>جارٍ التحميل...</p>
-        ) : messages.length === 0 ? (
+        ) : topMessages.length === 0 ? (
           <p className="text-center text-ink-muted">لا توجد رسائل بعد.</p>
         ) : (
           <ul className="space-y-3">
-            {messages.map((m) => {
+            {topMessages.map((m) => {
               const isPublic = m.recipient_id === null
+              const replies = repliesByParent.get(m.id) ?? []
+              const isExpanded = expandedThreads.has(m.id) || replies.length <= 2
               return (
                 <li
                   key={m.id}
@@ -307,10 +427,107 @@ export default function AdminMessagesTab() {
                     <button
                       type="button"
                       onClick={() => void openAttachment(m.attachment_path as string)}
-                      className="mt-2 text-sm font-semibold text-primary hover:underline"
+                      className="mt-2 block text-sm font-semibold text-primary hover:underline"
                     >
                       عرض المرفق
                     </button>
+                  )}
+
+                  <MessageReactions
+                    messageId={m.id}
+                    meId={meId}
+                    reactions={reactionsByMsg.get(m.id) ?? []}
+                    onToggle={(id, emoji) => void toggleReaction(id, emoji)}
+                  />
+
+                  {replies.length > 0 && (
+                    <div className="mt-3 border-t border-light-blue/60 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleThread(m.id)}
+                        className="mb-2 text-xs font-bold text-primary hover:underline"
+                      >
+                        {isExpanded ? `إخفاء الردود (${replies.length})` : `عرض الردود (${replies.length})`}
+                      </button>
+
+                      {isExpanded && (
+                        <ul className="space-y-2 border-s-2 border-primary/30 ps-3">
+                          {replies.map((r) => {
+                            const fromStudent = r.sender_id !== meId
+                            const isReplyingHere = replyTarget?.rootId === m.id && replyTarget.studentId === r.sender_id
+                            return (
+                              <li key={r.id} className="rounded-lg border border-light-blue/70 bg-white/90 p-3">
+                                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                                    <span className="font-bold text-primary">{senderLabel(r)}</span>
+                                    <span className="text-ink-muted">←</span>
+                                    <span className="font-semibold text-ink">{targetLabel(r)}</span>
+                                  </div>
+                                  <span className="text-[11px] text-ink-muted">{fmt(r.created_at)}</span>
+                                </div>
+                                <p className="whitespace-pre-wrap text-sm text-ink">{r.body}</p>
+
+                                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                  <MessageReactions
+                                    messageId={r.id}
+                                    meId={meId}
+                                    reactions={reactionsByMsg.get(r.id) ?? []}
+                                    onToggle={(id, emoji) => void toggleReaction(id, emoji)}
+                                  />
+                                  {fromStudent && !isReplyingHere && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReplyTarget({
+                                          rootId: m.id,
+                                          studentId: r.sender_id,
+                                          studentName: senderLabel(r),
+                                          subject: m.subject,
+                                        })
+                                        setReplyBody('')
+                                      }}
+                                      className="text-xs font-semibold text-primary hover:underline"
+                                    >
+                                      رد خاص على {senderLabel(r)}
+                                    </button>
+                                  )}
+                                </div>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+
+                  {replyTarget?.rootId === m.id && (
+                    <div className="mt-3 rounded-xl border border-primary/30 bg-bg p-3">
+                      <label className="text-xs font-bold text-primary">
+                        رد خاص إلى: {replyTarget.studentName}
+                      </label>
+                      <textarea
+                        className={input}
+                        rows={2}
+                        placeholder="اكتب ردك الخاص هنا..."
+                        value={replyBody}
+                        onChange={(e) => setReplyBody(e.target.value)}
+                      />
+                      <div className="mt-2 flex items-center gap-3">
+                        <button type="button" className={btn} onClick={() => void sendPrivateReply()} disabled={busy}>
+                          {busy ? 'جارٍ الإرسال...' : 'إرسال الرد الخاص'}
+                        </button>
+                        <button
+                          type="button"
+                          className="text-sm text-error hover:underline"
+                          onClick={() => {
+                            setReplyTarget(null)
+                            setReplyBody('')
+                          }}
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </li>
               )

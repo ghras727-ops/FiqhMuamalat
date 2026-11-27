@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+﻿import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import AppShell, { type ShellTab } from '../../components/AppShell'
 import AttendanceTab from './AttendanceTab'
 import GradesTab from './GradesTab'
@@ -13,8 +13,9 @@ import AssignmentsTab from './AssignmentsTab'
 import AdminMessagesTab from './AdminMessagesTab'
 import FinalGradesTab from './FinalGradesTab'
 import AdminPracticeExamsTab from './AdminPracticeExamsTab'
+import { useUnreadMessages } from '../shared/useUnreadMessages'
 
-const TABS: ShellTab[] = [
+const BASE_TABS: ShellTab[] = [
   { key: 'home', label: 'الرئيسة', group: 'عام' },
   { key: 'weeks', label: 'الأسابيع والدروس', group: 'التدريس' },
   { key: 'bank', label: 'بنك الأسئلة', group: 'التقييم' },
@@ -28,7 +29,7 @@ const TABS: ShellTab[] = [
   { key: 'comm', label: 'التواصل', group: 'المتابعة' }
 ]
 
-function CommHub() {
+function CommHub({ unreadCount, onRead }: { unreadCount: number; onRead: () => void }) {
   const [sub, setSub] = useState<'posts' | 'messages'>('posts')
   const [loaded, setLoaded] = useState<string[]>(['posts'])
 
@@ -51,11 +52,16 @@ function CommHub() {
         <button
           type="button"
           onClick={() => setSub('messages')}
-          className={`rounded-lg px-4 py-2 text-sm font-bold transition ${
+          className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold transition ${
             sub === 'messages' ? 'bg-primary text-white shadow-sm' : 'text-primary hover:bg-primary-soft'
           }`}
         >
-          💬 المراسلة والتعميمات
+          <span>💬 المراسلة والتعميمات</span>
+          {unreadCount > 0 && (
+            <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-error px-1.5 py-0.5 text-xs font-bold text-white">
+              {unreadCount}
+            </span>
+          )}
         </button>
       </div>
       {loaded.includes('posts') && (
@@ -65,7 +71,7 @@ function CommHub() {
       )}
       {loaded.includes('messages') && (
         <div style={{ display: sub === 'messages' ? 'block' : 'none' }}>
-          <AdminMessagesTab />
+          <AdminMessagesTab onRead={onRead} />
         </div>
       )}
     </div>
@@ -75,10 +81,21 @@ function CommHub() {
 export default function AdminPage() {
   const [tab, setTab] = useState('home')
   const [mounted, setMounted] = useState<string[]>(['home'])
+  const { counts: unreadCounts, refresh: refreshUnread } = useUnreadMessages()
 
   useEffect(() => {
     setMounted((prev) => (prev.includes(tab) ? prev : [...prev, tab]))
   }, [tab])
+
+  const tabs = useMemo<ShellTab[]>(
+    () =>
+      BASE_TABS.map((t) =>
+        t.key === 'comm' && unreadCounts.directCount > 0
+          ? { ...t, label: `🔴 التواصل (${unreadCounts.directCount})` }
+          : t,
+      ),
+    [unreadCounts.directCount],
+  )
 
   const panels: { key: string; node: ReactNode }[] = [
     { key: 'home', node: <HomeTab /> },
@@ -91,11 +108,11 @@ export default function AdminPage() {
     { key: 'attendance', node: <AttendanceTab /> },
     { key: 'final', node: <FinalGradesTab /> },
     { key: 'reports', node: <ReportsTab /> },
-    { key: 'comm', node: <CommHub /> },
+    { key: 'comm', node: <CommHub unreadCount={unreadCounts.directCount} onRead={() => void refreshUnread()} /> },
   ]
 
   return (
-    <AppShell tabs={TABS} current={tab} onChange={setTab}>
+    <AppShell tabs={tabs} current={tab} onChange={setTab}>
       {panels.map(({ key, node }) =>
         mounted.includes(key) ? (
           <div key={key} style={{ display: tab === key ? 'block' : 'none' }}>

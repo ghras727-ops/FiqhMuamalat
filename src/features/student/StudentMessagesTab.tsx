@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../app/auth-context'
 import { MESSAGES_READ_EVENT } from './useUnreadStudentMessages'
+import MessageReactions, { type ReactionRow } from '../shared/MessageReactions'
 
 const BUCKET = 'platform-files'
 
@@ -26,10 +27,6 @@ interface Message {
 
 type Notice = { type: 'success' | 'error'; text: string } | null
 
-/**
- * الجلب المطلوب: select('*, profiles_sender:sender_id(full_name)').
- * إن فشل التضمين نرجع لجلب عادي ثم نحاول جلب الأسماء (قد تمنعها RLS عن الطالب؛ نعرض "الأستاذ" حينها).
- */
 async function fetchMessages(
   client: SupabaseClient,
   filter: string,
@@ -65,7 +62,8 @@ export default function StudentMessagesTab() {
   const meId = profile?.id
 
   const [messages, setMessages] = useState<Message[]>([])
-  const [newIds, setNewIds] = useState<Set<string>>(new Set()) // كانت غير مقروءة عند فتح الصفحة
+  const [reactions, setReactions] = useState<ReactionRow[]>([])
+  const [newIds, setNewIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState<Notice>(null)
 
@@ -90,7 +88,6 @@ export default function StudentMessagesTab() {
     }
     const rows = res.rows.filter((m) => !m.is_deleted)
 
-    // التعميمات: قراءتها تُسجَّل لكل طالب في message_reads (read_at مشترك فلا يصلح لها)
     const readRes = await supabase.from('message_reads').select('message_id').eq('student_id', meId)
     const readsOk = !readRes.error
     const readIds = new Set(((readRes.data ?? []) as { message_id: string }[]).map((r) => r.message_id))
@@ -102,6 +99,15 @@ export default function StudentMessagesTab() {
 
     setNewIds(new Set([...unreadPrivate, ...unreadBroadcast]))
     setMessages(rows)
+
+    if (rows.length > 0) {
+      const rxRes = await supabase
+        .from('message_reactions')
+        .select('message_id, user_id, emoji')
+        .in('message_id', rows.map((m) => m.id))
+      if (!rxRes.error) setReactions((rxRes.data ?? []) as ReactionRow[])
+    }
+
     setLoading(false)
 
     if (unreadPrivate.length > 0) {
@@ -125,12 +131,45 @@ export default function StudentMessagesTab() {
       if (error) notify('error', `تعذّر تسجيل قراءة التعميمات: ${error.message}`)
     }
 
-    window.dispatchEvent(new Event(MESSAGES_READ_EVENT)) // تحديث الشارة الحمراء على التبويب
+    window.dispatchEvent(new Event(MESSAGES_READ_EVENT))
   }, [meId, notify])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const reactionsByMsg = useMemo(() => {
+    const map = new Map<string, ReactionRow[]>()
+    for (const r of reactions) {
+      const list = map.get(r.message_id) ?? []
+      list.push(r)
+      map.set(r.message_id, list)
+    }
+    return map
+  }, [reactions])
+
+  async function toggleReaction(messageId: string, emoji: string) {
+    if (!supabase || !meId) return
+    const exists = reactions.some((r) => r.message_id === messageId && r.user_id === meId && r.emoji === emoji)
+    if (exists) {
+      const { error } = await supabase
+        .from('message_reactions')
+        .delete()
+        .eq('message_id', messageId)
+        .eq('user_id', meId)
+        .eq('emoji', emoji)
+      if (!error) {
+        setReactions((prev) => prev.filter((r) => !(r.message_id === messageId && r.user_id === meId && r.emoji === emoji)))
+      }
+    } else {
+      const { error } = await supabase
+        .from('message_reactions')
+        .insert({ message_id: messageId, user_id: meId, emoji })
+      if (!error) {
+        setReactions((prev) => [...prev, { message_id: messageId, user_id: meId, emoji }])
+      }
+    }
+  }
 
   async function sendReply() {
     if (!supabase || !meId || !replyingTo) return
@@ -167,7 +206,7 @@ export default function StudentMessagesTab() {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  if (!profile) return null
+  if (!profile || !meId) return null
 
   return (
     <div className="space-y-5">
@@ -239,6 +278,13 @@ export default function StudentMessagesTab() {
                       عرض المرفق
                     </button>
                   )}
+
+                  <MessageReactions
+                    messageId={m.id}
+                    meId={meId}
+                    reactions={reactionsByMsg.get(m.id) ?? []}
+                    onToggle={(id, emoji) => void toggleReaction(id, emoji)}
+                  />
 
                   <div className="mt-3">
                     {replyingTo?.id === m.id ? (
