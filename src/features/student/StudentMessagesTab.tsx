@@ -382,7 +382,7 @@ export default function StudentMessagesTab() {
                 key={newFileKey}
                 id="stu-msg-file"
                 type="file"
-                accept="image/*,.pdf,.doc,.docx"
+                accept="image/jpeg,image/png,image/webp,.pdf"
                 className={input}
                 onChange={(e) => setNewFile(e.target.files?.[0] ?? null)}
               />
@@ -531,7 +531,7 @@ export default function StudentMessagesTab() {
                           <input
                             key={replyFileKey}
                             type="file"
-                            accept="image/*,.pdf,.doc,.docx"
+                            accept="image/jpeg,image/png,image/webp,.pdf"
                             className="mt-2 block w-full text-xs text-ink-muted"
                             onChange={(e) => setReplyFile(e.target.files?.[0] ?? null)}
                           />
@@ -564,3 +564,4 @@ export default function StudentMessagesTab() {
     </div>
   )
 }
+

@@ -14,82 +14,125 @@ interface Props {
   reactions: ReactionRow[]
   onToggle: (messageId: string, emoji: string) => void
   disabled?: boolean
+  resolveUserName?: (userId: string) => string
 }
 
-export default function MessageReactions({ messageId, meId, reactions, onToggle, disabled }: Props) {
-  const [open, setOpen] = useState(false)
+export default function MessageReactions({
+  messageId,
+  meId,
+  reactions,
+  onToggle,
+  disabled,
+  resolveUserName,
+}: Props) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [inspectEmoji, setInspectEmoji] = useState<string | null>(null)
+
   const mine = new Set(reactions.filter((r) => r.user_id === meId).map((r) => r.emoji))
-  const counts = new Map<string, number>()
+  const byEmoji = new Map<string, string[]>()
   for (const r of reactions) {
-    counts.set(r.emoji, (counts.get(r.emoji) ?? 0) + 1)
+    const list = byEmoji.get(r.emoji) ?? []
+    list.push(r.user_id)
+    byEmoji.set(r.emoji, list)
   }
 
-  const activeList = QUICK_EMOJIS.filter((e) => (counts.get(e) ?? 0) > 0)
+  const activeList = QUICK_EMOJIS.filter((e) => (byEmoji.get(e)?.length ?? 0) > 0)
+  const inspectedUsers = inspectEmoji ? (byEmoji.get(inspectEmoji) ?? []) : []
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {activeList.map((emoji) => {
-        const count = counts.get(emoji) ?? 0
-        const isMine = mine.has(emoji)
-        return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {activeList.map((emoji) => {
+          const users = byEmoji.get(emoji) ?? []
+          const isMine = mine.has(emoji)
+          return (
+            <button
+              key={emoji}
+              type="button"
+              disabled={disabled}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (resolveUserName) {
+                  setInspectEmoji((prev) => (prev === emoji ? null : emoji))
+                } else {
+                  onToggle(messageId, emoji)
+                }
+              }}
+              title={resolveUserName ? 'انقر لعرض أسماء المتفاعلين' : 'تبديل التفاعل'}
+              className={
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold transition ' +
+                (isMine
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-light-blue bg-white text-ink-muted hover:border-primary/50')
+              }
+            >
+              <span>{emoji}</span>
+              <span>{users.length}</span>
+            </button>
+          )
+        })}
+
+        <div className="relative">
           <button
-            key={emoji}
             type="button"
             disabled={disabled}
             onClick={(e) => {
               e.stopPropagation()
-              onToggle(messageId, emoji)
+              setPickerOpen((v) => !v)
             }}
-            className={
-              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold transition ' +
-              (isMine
-                ? 'border-primary bg-primary-soft text-primary'
-                : 'border-light-blue bg-white text-ink-muted hover:border-primary/50')
-            }
+            className="rounded-full border border-light-blue bg-white px-2.5 py-0.5 text-xs font-semibold text-ink-muted transition hover:border-primary hover:text-primary"
           >
-            <span>{emoji}</span>
-            <span>{count}</span>
+            {pickerOpen ? 'إغلاق' : 'تفاعل +'}
           </button>
-        )
-      })}
 
-      <div className="relative">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={(e) => {
-            e.stopPropagation()
-            setOpen((v) => !v)
-          }}
-          className="rounded-full border border-light-blue bg-white px-2.5 py-0.5 text-xs font-semibold text-ink-muted transition hover:border-primary hover:text-primary"
-        >
-          {open ? 'إغلاق' : 'تفاعل +'}
-        </button>
-
-        {open && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="mt-1 inline-flex items-center gap-1 rounded-full border border-light-blue bg-white px-2 py-1 shadow-md"
-          >
-            {QUICK_EMOJIS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => {
-                  onToggle(messageId, emoji)
-                  setOpen(false)
-                }}
-                className={
-                  'rounded-full px-1.5 py-0.5 text-sm transition hover:bg-primary-soft ' +
-                  (mine.has(emoji) ? 'bg-primary-soft' : '')
-                }
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
+          {pickerOpen && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="mt-1 inline-flex items-center gap-1 rounded-full border border-light-blue bg-white px-2 py-1 shadow-md"
+            >
+              {QUICK_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    onToggle(messageId, emoji)
+                    setPickerOpen(false)
+                  }}
+                  className={
+                    'rounded-full px-1.5 py-0.5 text-sm transition hover:bg-primary-soft ' +
+                    (mine.has(emoji) ? 'bg-primary-soft' : '')
+                  }
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {resolveUserName && inspectEmoji && inspectedUsers.length > 0 && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="rounded-lg border border-light-blue bg-bg/60 px-3 py-2 text-xs text-ink"
+        >
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-bold text-primary">
+              المتفاعلون بـ {inspectEmoji} ({inspectedUsers.length}):
+            </span>
+            <button
+              type="button"
+              onClick={() => setInspectEmoji(null)}
+              className="text-ink-muted hover:text-error"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="leading-relaxed">
+            {inspectedUsers.map((uid) => resolveUserName(uid)).join('، ')}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

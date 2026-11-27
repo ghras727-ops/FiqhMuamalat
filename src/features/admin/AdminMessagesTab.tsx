@@ -108,6 +108,11 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     return map
   }, [students])
 
+  const resolveUserName = useCallback(
+    (uid: string) => (uid === meId ? 'أنت (الأستاذ)' : studentName.get(uid) || 'طالب'),
+    [meId, studentName],
+  )
+
   const load = useCallback(async (silent = false) => {
     if (!supabase || !meId) return
     if (!silent) setLoading(true)
@@ -199,7 +204,6 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
       .sort((a, b) => b.latestAt.localeCompare(a.latestAt))
   }, [messages, meId])
 
-  // تصفية السجل عند البحث (يبحث في المرسل والمرسل إليه والموضوع والنص والردود)
   const filteredThreads = useMemo(() => {
     const q = normAr(searchQuery)
     if (!q) return threads.map((t) => ({ ...t, autoExpand: false }))
@@ -244,6 +248,22 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
     if (willOpen && unreadIds.length > 0) {
       void markThreadRead(unreadIds)
     }
+  }
+
+  async function deleteMessage(messageId: string) {
+    if (!supabase) return
+    if (!window.confirm('هل تريد حذف هذه الرسالة من عندك ومن عند الطالب؟')) return
+    const { error } = await supabase
+      .from('messages')
+      .update({ is_deleted: true })
+      .eq('id', messageId)
+    if (error) {
+      notify('error', `تعذّر حذف الرسالة: ${error.message}`)
+      return
+    }
+    setMessages((prev) => prev.filter((m) => m.id !== messageId))
+    onReadRef.current?.()
+    notify('success', 'تم حذف الرسالة من الطرفين.')
   }
 
   async function toggleReaction(messageId: string, emoji: string) {
@@ -428,6 +448,7 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                 key={fileKey}
                 id="msg-file"
                 type="file"
+                accept="image/jpeg,image/png,image/webp,.pdf"
                 className={input}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
@@ -565,24 +586,34 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                           meId={meId}
                           reactions={reactionsByMsg.get(m.id) ?? []}
                           onToggle={(id, emoji) => void toggleReaction(id, emoji)}
+                          resolveUserName={resolveUserName}
                         />
-                        {fromStudentDirectly && (
+                        <div className="flex items-center gap-3">
+                          {fromStudentDirectly && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReplyTarget({
+                                  rootId: m.id,
+                                  studentId: m.sender_id,
+                                  studentName: senderLabel(m),
+                                  subject: m.subject,
+                                })
+                                setReplyBody('')
+                              }}
+                              className="text-xs font-bold text-primary hover:underline"
+                            >
+                              رد على {senderLabel(m)}
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => {
-                              setReplyTarget({
-                                rootId: m.id,
-                                studentId: m.sender_id,
-                                studentName: senderLabel(m),
-                                subject: m.subject,
-                              })
-                              setReplyBody('')
-                            }}
-                            className="text-xs font-bold text-primary hover:underline"
+                            onClick={() => void deleteMessage(m.id)}
+                            className="text-xs font-bold text-error hover:underline"
                           >
-                            رد على {senderLabel(m)}
+                            حذف
                           </button>
-                        )}
+                        </div>
                       </div>
 
                       {replies.length > 0 && (
@@ -615,24 +646,34 @@ export default function AdminMessagesTab({ onRead }: { onRead?: () => void }) {
                                     meId={meId}
                                     reactions={reactionsByMsg.get(r.id) ?? []}
                                     onToggle={(id, emoji) => void toggleReaction(id, emoji)}
+                                    resolveUserName={resolveUserName}
                                   />
-                                  {fromStudent && (
+                                  <div className="flex items-center gap-3">
+                                    {fromStudent && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setReplyTarget({
+                                            rootId: m.id,
+                                            studentId: r.sender_id,
+                                            studentName: senderLabel(r),
+                                            subject: m.subject,
+                                          })
+                                          setReplyBody('')
+                                        }}
+                                        className="text-xs font-bold text-primary hover:underline"
+                                      >
+                                        رد خاص على {senderLabel(r)}
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        setReplyTarget({
-                                          rootId: m.id,
-                                          studentId: r.sender_id,
-                                          studentName: senderLabel(r),
-                                          subject: m.subject,
-                                        })
-                                        setReplyBody('')
-                                      }}
-                                      className="text-xs font-bold text-primary hover:underline"
+                                      onClick={() => void deleteMessage(r.id)}
+                                      className="text-xs font-bold text-error hover:underline"
                                     >
-                                      رد خاص على {senderLabel(r)}
+                                      حذف
                                     </button>
-                                  )}
+                                  </div>
                                 </div>
                               </li>
                             )
